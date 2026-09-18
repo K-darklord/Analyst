@@ -168,6 +168,134 @@ VENDOR_METHODS = {
     },
 }
 
+# ---------------------------------------------------------------------------
+# FORK EXTENSION — Registry delegation (Phase 1 data-source refactoring)
+# Only this file in tradingagents/dataflows/ is modified by the K-darklord
+# fork. All other fork additions live in new files (registry.py, adapters/,
+# ticker_router.py, normalizer.py, base_adapter.py) that don't exist in
+# upstream, so they carry zero merge-conflict risk. See FORK_CHANGES.md.
+# ---------------------------------------------------------------------------
+# Mapping from the legacy method names (the keys of VENDOR_METHODS) to the
+# (category, capability) tuples used by the new DataSourceRegistry. Only
+# methods listed here are eligible for the registry dispatch path; other
+# methods fall through to the legacy VENDOR_METHODS chain unchanged.
+#
+# The mapping is intentionally conservative: it only covers capabilities
+# the registry currently knows about (market_data, fundamentals, news and
+# their sub-capabilities). macro_data and prediction_markets stay on the
+# legacy path because their adapters aren't in config/data_sources.yaml.
+REGISTRY_METHOD_MAP: dict[str, tuple[str, str]] = {
+    "get_stock_data":            ("market_data",   "market_data"),
+    "get_indicators":            ("market_data",   "technical_indicators"),
+    "get_fundamentals":          ("fundamentals",  "fundamentals"),
+    "get_balance_sheet":         ("fundamentals",  "balance_sheet"),
+    "get_cashflow":              ("fundamentals",  "cashflow"),
+    "get_income_statement":      ("fundamentals",  "income_statement"),
+    "get_news":                  ("news",          "news"),
+    "get_global_news":            ("news",          "global_news"),
+    "get_insider_transactions":   ("fundamentals",  "insider_transactions"),
+}
+
+
+def _registry_has_enabled_source(category: str, market: str) -> bool:
+    """Return True if the YAML config has at least one ENABLED source for
+    the (category, market) pair AND that source's adapter is registered.
+
+    Used by route_to_vendor to decide whether to try the registry path.
+    A False return means: fall back to the legacy VENDOR_METHODS chain.
+    """
+    try:
+        from .registry import get_registry, get_adapter_class
+    except ImportError:
+        return False
+    reg = get_registry()
+    # Adapters register themselves lazily on first use. describe_chain
+    # reports registered=False until the adapters subpackage has been
+    # imported, so force the import here to get an accurate read. The
+    # import is idempotent (a no-op on subsequent calls).
+    try:
+        reg.import_adapters()
+    except Exception:
+        # If adapter import fails (missing SDK, etc.), the legacy chain
+        # will handle the call — registry probe returns False.
+        return False
+    chain = reg.describe_chain(category, market)
+    for entry in chain:
+        if not entry.get("enabled", True):
+            continue
+        if not entry.get("registered"):
+            continue
+        # Check the registered adapter declares a capability under this
+        # category. describe_chain already exposes sorted capabilities.
+        caps = set(entry.get("capabilities", []))
+        from .base_adapter import capabilities_for_category
+        if caps & capabilities_for_category(category):
+            return True
+    return False
+
+
+def _dispatch_via_registry(method: str, *args, **kwargs):
+    """Dispatch ``method`` to the registry; return its result on success.
+
+    Raises NoMarketDataError if the registry has no enabled/registered
+    source for the (category, market) pair (so the caller falls back to
+    the legacy chain), or propagates whatever the registry raises.
+
+    Positional args are translated to keyword args using each method's
+    known signature, because the registry adapters consume kwargs only
+    (the BaseAdapter methods are all keyword-defined).
+    """
+    from .registry import get_registry
+    from .ticker_router import route as route_market
+
+    category, capability = REGISTRY_METHOD_MAP[method]
+
+    # Translate positional args -> kwargs based on the method's signature.
+    # This is the only place that knows the legacy call conventions; the
+    # adapters themselves only see kwargs.
+    kw = _coerce_method_kwargs(method, args, kwargs)
+
+    # Determine market from the symbol arg (first positional in every
+    # method except get_global_news). For get_global_news there is no
+    # symbol — the market is whatever the YAML has configured for US
+    # (since macro news is a global feed, not per-market).
+    symbol = kw.get("symbol")
+    market = route_market(symbol) if symbol else "US"
+
+    reg = get_registry()
+    return reg.dispatch(category, market, capability=capability, **kw)
+
+
+def _coerce_method_kwargs(method: str, args: tuple, kwargs: dict) -> dict:
+    """Translate positional args to the kwargs the registry adapter expects.
+
+    The legacy vendor functions accept positional args (Annotated
+    types); the registry adapters consume keyword args. This helper
+    rebuilds kwargs from positionals using each method's known order.
+    """
+    # Start with caller-supplied kwargs (e.g. freq, curr_date).
+    out = dict(kwargs)
+
+    # Map method name -> ordered positional parameter names.
+    positional_order = {
+        "get_stock_data":          ["symbol", "start_date", "end_date"],
+        "get_indicators":          ["symbol", "indicator", "curr_date", "look_back_days"],
+        "get_fundamentals":        ["symbol"],
+        "get_balance_sheet":       ["symbol"],
+        "get_cashflow":            ["symbol"],
+        "get_income_statement":    ["symbol"],
+        "get_news":                ["symbol"],
+        "get_global_news":         [],
+        "get_insider_transactions": ["symbol"],
+    }
+    order = positional_order.get(method, [])
+    for i, val in enumerate(args):
+        if i < len(order):
+            out.setdefault(order[i], val)
+    return out
+
+
+
 def get_category_for_method(method: str) -> str:
     """Get the category that contains the specified method."""
     for category, info in TOOLS_CATEGORIES.items():
@@ -197,7 +325,46 @@ def route_to_vendor(method: str, *args, **kwargs):
     available vendors for that method; otherwise fall back to the configured
     chain. US tickers use the configured chain. This is a per-call override:
     it does NOT change the configured default, so a US-symbol run is unaffected.
+
+    Phase 1 path: if ``method`` is in REGISTRY_METHOD_MAP AND the YAML
+    config has an enabled, registered source for the (category, market)
+    pair, dispatch via the DataSourceRegistry first. On NoMarketDataError
+    or VendorNotConfiguredError from the registry, fall back to the legacy
+    VENDOR_METHODS chain below (preserves existing behavior).
     """
+    # --- FORK EXTENSION: Phase 1 registry delegation ------------------
+    if method in REGISTRY_METHOD_MAP:
+        # Determine the market without dispatching, so we can decide whether
+        # the registry path is even worth trying. We need a symbol arg for
+        # this; get_global_news has none, so we always probe with market=US.
+        try:
+            from .ticker_router import route as _route_market
+            _probe_symbol = args[0] if (args and isinstance(args[0], str)) else None
+            _probe_market = _route_market(_probe_symbol) if _probe_symbol else "US"
+        except Exception:
+            _probe_market = "US"
+        _cat, _cap = REGISTRY_METHOD_MAP[method]
+        if _registry_has_enabled_source(_cat, _probe_market):
+            try:
+                return _dispatch_via_registry(method, *args, **kwargs)
+            except (NoMarketDataError, VendorNotConfiguredError) as e:
+                logger.info(
+                    "Registry path failed for %s on market=%s: %s; "
+                    "falling back to legacy VENDOR_METHODS chain.",
+                    method, _probe_market, e,
+                )
+                # fall through to the legacy chain below
+            except Exception as e:
+                # Unexpected registry error: log loudly, but don't crash the
+                # run — the legacy chain may still serve the request.
+                logger.warning(
+                    "Registry path errored for %s: %s; falling back to "
+                    "legacy VENDOR_METHODS chain.", method, e,
+                )
+                # fall through to the legacy chain below
+
+    # --- Legacy VENDOR_METHODS chain ---------------------------------
+
     # A-share symbol routing: if the first positional arg looks like an
     # A-share ticker, prefer akshare (overrides config). US tickers use the
     # configured chain. akshare owns A-share data; yfinance does not.

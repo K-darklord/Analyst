@@ -1,1 +1,8 @@
 .
+
+# FORK EXTENSION — fork-specific deps for the K-darklord fork.
+# Install with: pip install -r requirements.txt
+# (or use: pip install -e ".[fork]" which is the canonical install path)
+tushare>=1.4.0
+pyyaml>=6.0
+akshare>=1.12.0

@@ -38,6 +38,16 @@ dev = [
 bedrock = [
     "langchain-aws>=1.5.0",
 ]
+# K-darklord fork extras: A-share + HK data sources and YAML config support.
+# Optional so the upstream install stays lean. Install with:
+#   pip install "tradingagents[fork]"
+# FORK EXTENSION — keep this block at the bottom of [project.optional-dependencies]
+# so upstream merges don't have to resolve conflicts inside it.
+fork = [
+    "tushare>=1.4.0",
+    "pyyaml>=6.0",
+    "akshare>=1.12.0",
+]
 
 [project.scripts]
 tradingagents = "cli.main:app"

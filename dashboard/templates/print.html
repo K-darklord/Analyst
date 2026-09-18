@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{ ticker }} &#8212; TradingAgents Print Report</title>
+  <!-- marked.js for client-side markdown -> HTML rendering -->
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+  <style>
+    /* ===== Bloomberg dark theme (print-optimized, self-contained) =====
+     * Mirrors style.css palette: bg #0a0e1a, card #151a2e, amber #ffa726,
+     * bull #26a69a, bear #ef5350. All sizes tuned for A4 print density.
+     */
+    :root {
+      --bg-primary: #0a0e1a;
+      --bg-secondary: #151a2e;
+      --bg-tertiary: #1f2438;
+      --border: #2a3142;
+      --border-strong: #3a4258;
+      --text-primary: #e8eaf0;
+      --text-secondary: #8b92a8;
+      --text-tertiary: #5c6478;
+      --accent-amber: #ffa726;
+      --accent-blue: #42a5f5;
+      --bull: #26a69a;
+      --bear: #ef5350;
+      --neutral: #78909c;
+      --warning-strong: #ff5722;
+      --warning-mild: #ffb300;
+      --accent-purple: #ab47bc;
+      --font-sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      --font-mono: 'JetBrains Mono', 'SF Mono', Menlo, Consolas, monospace;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      margin: 0;
+      padding: 0;
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: var(--font-sans);
+      font-size: 11px;
+      line-height: 1.5;
+      font-variant-numeric: tabular-nums;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    a { color: var(--accent-blue); text-decoration: none; }
+
+    /* ===== Print button (hidden when actually printing) ===== */
+    .print-btn-wrap {
+      position: fixed;
+      top: 14px;
+      right: 14px;
+      z-index: 100;
+    }
+    .print-btn {
+      background: var(--accent-amber);
+      color: #0a0e1a;
+      border: 1px solid var(--accent-amber);
+      padding: 9px 18px;
+      font-family: var(--font-mono);
+      font-weight: 700;
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      cursor: pointer;
+      border-radius: 2px;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.35);
+    }
+    .print-btn:hover { background: #ffb840; border-color: #ffb840; }
+
+    /* ===== Page container (A4-friendly) ===== */
+    .page {
+      max-width: 210mm;
+      margin: 0 auto;
+      padding: 12mm;
+    }
+
+    /* ===== Header: Ticker + Rating + Date ===== */
+    .print-header {
+      display: flex;
+      align-items: flex-end;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 8px 0 12px;
+      border-bottom: 2px solid var(--accent-amber);
+      margin-bottom: 12px;
+      page-break-inside: avoid;
+    }
+    .print-header .ticker-block {
+      display: flex;
+      align-items: baseline;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .print-header .ticker {
+      font-family: var(--font-mono);
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text-primary);
+      letter-spacing: 0.06em;
+    }
+    .print-header .rating-chip {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      font-weight: 800;
+      padding: 3px 10px;
+      border-radius: 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      border: 1px solid var(--border);
+      background: var(--bg-secondary);
+      color: var(--text-secondary);
+    }
+    .print-header .rating-chip.pos {
+      background: rgba(38,166,154,0.25);
+      color: var(--bull);
+      border-color: rgba(38,166,154,0.7);
+    }
+    .print-header .rating-chip.neg {
+      background: rgba(239,83,80,0.25);
+      color: var(--bear);
+      border-color: rgba(239,83,80,0.7);
+    }
+    .print-header .rating-chip.neu {
+      background: rgba(120,144,156,0.25);
+      color: var(--neutral);
+      border-color: rgba(120,144,156,0.7);
+    }
+    .print-header .rating-chip.unknown {
+      background: var(--bg-secondary);
+      color: var(--text-tertiary);
+    }
+    .print-header .meta-block { text-align: right; }
+    .print-header .brand {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent-amber);
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+    .print-header .date {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      color: var(--text-secondary);
+      letter-spacing: 0.06em;
+      margin-top: 2px;
+    }
+
+    /* ===== Section card ===== */
+    .card {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border);
+      border-left: 3px solid var(--accent-amber);
+      border-radius: 2px;
+      padding: 9px 13px;
+      margin-bottom: 9px;
+      page-break-inside: avoid;
+    }
+    /* Colored side accents per content type */
+    .card.bull-side { border-left-color: var(--bull); }
+    .card.bear-side { border-left-color: var(--bear); }
+    .card.aggressive-side { border-left-color: var(--warning-strong); }
+    .card.conservative-side { border-left-color: var(--accent-blue); }
+    .card.neutral-side { border-left-color: var(--neutral); }
+    .card.judge-side { border-left-color: var(--accent-amber); }
+    .card.market { border-left-color: var(--accent-blue); }
+    .card.sentiment { border-left-color: var(--accent-purple); }
+    .card.news { border-left-color: var(--accent-amber); }
+    .card.fundamentals { border-left-color: var(--bull); }
+
+    /* Section titles */
+    h2.section-title {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 700;
+      margin: 0 0 8px;
+      color: var(--accent-amber);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    h2.section-title::before {
+      content: "";
+      width: 3px;
+      height: 14px;
+      background: var(--accent-amber);
+    }
+    h3.sub-title {
+      font-family: var(--font-mono);
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin: 4px 0 4px;
+    }
+
+    /* ===== Markdown body ===== */
+    .md-body {
+      font-size: 11px;
+      line-height: 1.55;
+      color: var(--text-primary);
+      word-wrap: break-word;
+      overflow-wrap: anywhere;
+    }
+    .md-body h1 { font-size: 14px; margin: 8px 0 4px; color: var(--accent-amber); }
+    .md-body h2 { font-size: 13px; margin: 8px 0 4px; color: var(--text-primary); }
+    .md-body h3 { font-size: 12px; margin: 6px 0 3px; color: var(--text-primary); }
+    .md-body p { margin: 4px 0; }
+    .md-body ul, .md-body ol { margin: 4px 0; padding-left: 20px; }
+    .md-body li { margin: 2px 0; }
+    .md-body table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 6px 0;
+      font-size: 10px;
+      font-family: var(--font-mono);
+    }
+    .md-body th, .md-body td {
+      border: 1px solid var(--border);
+      padding: 4px 6px;
+      text-align: left;
+      vertical-align: top;
+    }
+    .md-body th {
+      background: var(--bg-tertiary);
+      color: var(--accent-amber);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .md-body code {
+      background: var(--bg-tertiary);
+      padding: 1px 4px;
+      font-size: 10px;
+      font-family: var(--font-mono);
+      color: var(--accent-amber);
+      border-radius: 2px;
+    }
+    .md-body pre {
+      background: var(--bg-primary);
+      padding: 8px;
+      font-size: 10px;
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .md-body pre code { background: transparent; padding: 0; color: var(--text-primary); }
+    .md-body blockquote {
+      border-left: 3px solid var(--accent-amber);
+      margin: 6px 0;
+      padding: 4px 10px;
+      color: var(--text-secondary);
+      background: rgba(255,167,38,0.05);
+    }
+    .md-body strong { font-weight: 700; color: var(--text-primary); }
+    .md-body a { color: var(--accent-blue); }
+    /* Inline highlights (price / pct / bull / bear) -- print-friendly */
+    .md-body .price-highlight {
+      color: var(--accent-amber);
+      background: rgba(255,167,38,0.1);
+      padding: 0 3px;
+      font-family: var(--font-mono);
+      font-weight: 600;
+    }
+    .md-body .pct-highlight { color: var(--accent-blue); font-weight: 600; }
+    .md-body .bull-highlight {
+      color: var(--bull);
+      background: rgba(38,166,154,0.15);
+      padding: 0 3px;
+      font-weight: 600;
+    }
+    .md-body .bear-highlight {
+      color: var(--bear);
+      background: rgba(239,83,80,0.15);
+      padding: 0 3px;
+      font-weight: 600;
+    }
+
+    /* ===== Layout grids (2-col + 3-col for sub-cards) ===== */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+    }
+    .grid-3 {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 9px;
+    }
+    /* Nested .card inside grid: zero outer margin so grid gap controls spacing */
+    .grid-2 > .card, .grid-3 > .card { margin-bottom: 0; }
+    .debate-judge-wrap { margin-top: 9px; }
+
+    /* ===== Key Signals (populated by key_signals.js) ===== */
+    #keySignalsCard { font-size: 10px; }
+    .ks-section { padding: 6px 0; border-bottom: 1px solid var(--border); }
+    .ks-section:first-child { padding-top: 0; }
+    .ks-section:last-child { border-bottom: none; padding-bottom: 0; }
+    .ks-section-title {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-tertiary);
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin: 0 0 6px;
+    }
+    .ks-section-title.ks-pos { color: var(--bull); }
+    .ks-section-title.ks-neg { color: var(--bear); }
+    /* 2-column grid for A4 print density */
+    .ks-metric-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6px;
+    }
+    .ks-metric-cell {
+      background: var(--bg-primary);
+      border: 1px solid var(--border);
+      border-radius: 2px;
+      padding: 6px 8px;
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-height: 44px;
+    }
+    .ks-metric-label {
+      font-family: var(--font-mono);
+      font-size: 9px;
+      font-weight: 700;
+      color: var(--text-tertiary);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+    }
+    .ks-metric-value {
+      font-family: var(--font-mono);
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--text-primary);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: 0.02em;
+    }
+    .ks-metric-value.muted { color: var(--text-tertiary); }
+    .ks-metric-value.amber { color: var(--accent-amber); }
+    .ks-metric-value.bull { color: var(--bull); }
+    .ks-metric-value.bear { color: var(--bear); }
+    .ks-metric-value.neutral { color: var(--neutral); }
+    .ks-sentiment-row { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .ks-sentiment-tag {
+      font-family: var(--font-mono);
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 7px;
+      border-radius: 2px;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      background: var(--bg-primary);
+      color: var(--text-secondary);
+      border: 1px solid var(--border);
+    }
+    .ks-sentiment-bull { background: rgba(38,166,154,0.18); color: var(--bull); border-color: rgba(38,166,154,0.4); }
+    .ks-sentiment-bear { background: rgba(239,83,80,0.18); color: var(--bear); border-color: rgba(239,83,80,0.4); }
+    .ks-sentiment-neutral { background: rgba(120,144,156,0.18); color: var(--neutral); border-color: rgba(120,144,156,0.4); }
+    .ks-pct { font-family: var(--font-mono); font-size: 11px; font-weight: 700; }
+    .ks-pct.bull { color: var(--bull); }
+    .ks-pct.bear { color: var(--bear); }
+    .ks-bullet-list { list-style: none; margin: 0; padding: 0; }
+    .ks-bullet-list li {
+      font-size: 10px;
+      line-height: 1.4;
+      padding: 3px 0;
+      border-bottom: 1px dashed var(--border);
+      color: var(--text-primary);
+    }
+    .ks-bullet-list li:last-child { border-bottom: none; }
+    .ks-bullet-empty { color: var(--text-tertiary); font-style: italic; font-size: 10px; padding: 3px 0; }
+    .ks-was-line { display: block; margin-top: 2px; font-family: var(--font-mono); font-size: 9px; color: var(--text-tertiary); }
+    .ks-was-strike { text-decoration: line-through; text-decoration-color: var(--bear); color: var(--text-tertiary); }
+
+    /* ===== Empty + error states ===== */
+    .empty {
+      color: var(--text-tertiary);
+      font-style: italic;
+      padding: 8px;
+      text-align: center;
+      font-size: 10px;
+    }
+    .error-banner {
+      background: var(--bg-secondary);
+      border: 1px solid var(--bear);
+      border-left: 3px solid var(--bear);
+      padding: 14px 18px;
+      margin: 24px 0;
+      color: var(--bear);
+      font-family: var(--font-mono);
+      font-size: 12px;
+      border-radius: 2px;
+    }
+
+    /* ===== Print rules ===== */
+    @media print {
+      @page { size: A4; margin: 12mm; }
+      * {
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+        color-adjust: exact !important;
+      }
+      .print-btn-wrap { display: none !important; }
+      body { background: var(--bg-primary) !important; }
+      .page { padding: 0; max-width: none; }
+      /* Keep cards from breaking across pages */
+      .card, .print-header { page-break-inside: avoid; }
+      /* Section title should stay with following content */
+      h2.section-title, h3.sub-title { page-break-after: avoid; }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Floating print button (hidden when printing) -->
+  <div class="print-btn-wrap">
+    <button class="print-btn" onclick="window.print()">&#128196; Print / Save as PDF</button>
+  </div>
+
+  <div class="page">
+
+    {% if error_message %}
+      <div class="error-banner">{{ error_message }}</div>
+    {% else %}
+
+      <!-- ===== HEADER: Ticker + Rating + Date ===== -->
+      <header class="print-header">
+        <div class="ticker-block">
+          <span class="ticker">{{ ticker }}</span>
+          <span class="rating-chip {{ rating_class }}">{{ rating_text }}</span>
+        </div>
+        <div class="meta-block">
+          <div class="brand">TRADINGAGENTS &#8226; REPORT</div>
+          <div class="date">Date: {{ state_date or 'N/A' }}</div>
+        </div>
+      </header>
+
+      <!-- ===== KEY SIGNALS SUMMARY (2-col grid, populated by key_signals.js) ===== -->
+      <section class="card">
+        <h2 class="section-title">Key Signals &#8212; 关键信号</h2>
+        <div id="keySignalsCard" data-ticker="{{ ticker }}"></div>
+      </section>
+
+      <!-- ===== FINAL TRADE DECISION ===== -->
+      <section class="card">
+        <h2 class="section-title">Final Trade Decision</h2>
+        <div class="md-body" data-md>{{ state.final_trade_decision or "" }}</div>
+      </section>
+
+      <!-- ===== TRADER DECISION + INVESTMENT PLAN ===== -->
+      <section class="card">
+        <h2 class="section-title">Trader Decision + Investment Plan</h2>
+        <div class="grid-2">
+          <div class="card bull-side">
+            <h3 class="sub-title">Trader Decision</h3>
+            <div class="md-body" data-md>{{ state.trader_investment_decision or "" }}</div>
+          </div>
+          <div class="card conservative-side">
+            <h3 class="sub-title">Investment Plan</h3>
+            <div class="md-body" data-md>{{ state.investment_plan or "" }}</div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===== ANALYST REPORTS (each as titled section, full text, NOT collapsed) ===== -->
+      <section class="card market">
+        <h2 class="section-title">Market Report</h2>
+        <div class="md-body" data-md>{{ state.market_report or "" }}</div>
+      </section>
+
+      <section class="card sentiment">
+        <h2 class="section-title">Sentiment Report</h2>
+        <div class="md-body" data-md>{{ state.sentiment_report or "" }}</div>
+      </section>
+
+      <section class="card news">
+        <h2 class="section-title">News Report</h2>
+        <div class="md-body" data-md>{{ state.news_report or "" }}</div>
+      </section>
+
+      <section class="card fundamentals">
+        <h2 class="section-title">Fundamentals Report</h2>
+        <div class="md-body" data-md>{{ state.fundamentals_report or "" }}</div>
+      </section>
+
+      <!-- ===== RESEARCH DEBATE (bull / bear / judge) ===== -->
+      {% if state.investment_debate_state %}
+      {% set deb = state.investment_debate_state %}
+      <section class="card">
+        <h2 class="section-title">Research Debate &#8212; Bull vs Bear</h2>
+        <div class="grid-2">
+          <div class="card bull-side">
+            <h3 class="sub-title">&#9650; Bull</h3>
+            <div class="md-body" data-md>{{ deb.bull_history or "" }}</div>
+          </div>
+          <div class="card bear-side">
+            <h3 class="sub-title">&#9660; Bear</h3>
+            <div class="md-body" data-md>{{ deb.bear_history or "" }}</div>
+          </div>
+        </div>
+        {% if deb.judge_decision %}
+        <div class="debate-judge-wrap">
+          <h3 class="sub-title">&#9878; Research Manager</h3>
+          <div class="md-body" data-md>{{ deb.judge_decision }}</div>
+        </div>
+        {% endif %}
+      </section>
+      {% endif %}
+
+      <!-- ===== RISK DEBATE (aggressive / conservative / neutral / judge) ===== -->
+      {% if state.risk_debate_state %}
+      {% set rdeb = state.risk_debate_state %}
+      <section class="card">
+        <h2 class="section-title">Risk Debate (3-way)</h2>
+        <div class="grid-3">
+          <div class="card aggressive-side">
+            <h3 class="sub-title">&#128293; Aggressive</h3>
+            <div class="md-body" data-md>{{ rdeb.aggressive_history or "" }}</div>
+          </div>
+          <div class="card conservative-side">
+            <h3 class="sub-title">&#128737; Conservative</h3>
+            <div class="md-body" data-md>{{ rdeb.conservative_history or "" }}</div>
+          </div>
+          <div class="card neutral-side">
+            <h3 class="sub-title">&#9878; Neutral</h3>
+            <div class="md-body" data-md>{{ rdeb.neutral_history or "" }}</div>
+          </div>
+        </div>
+        {% if rdeb.judge_decision %}
+        <div class="debate-judge-wrap">
+          <h3 class="sub-title">&#9878; Risk Judge</h3>
+          <div class="md-body" data-md>{{ rdeb.judge_decision }}</div>
+        </div>
+        {% endif %}
+      </section>
+      {% endif %}
+
+    {% endif %}
+
+  </div>
+
+  <!-- Server-injected state for key_signals.js (auto-escaped JSON) -->
+  <script>
+    window.__SELECTED_STATE__ = {{ state | tojson }};
+    window.__SELECTED_TICKER__ = {{ ticker | tojson }};
+  </script>
+  <!-- Reuses the same extraction logic as the main dashboard -->
+  <script src="/static/key_signals.js"></script>
+  <script>
+    /* Markdown -> HTML via marked.js, with optional inline highlight
+     * (price / pct / bull / bear tokens) matching the main dashboard. */
+    function highlightInline(html) {
+      var parts = html.split(/(<[^>]+>)/);
+      for (var i = 0; i < parts.length; i++) {
+        if (parts[i].length === 0 || parts[i].charAt(0) === '<') continue;
+        var s = parts[i];
+        s = s.replace(/(?:\$|USD\s)(\d{1,5}(?:\.\d{1,4})?)/g,
+          '<span class="price-highlight">$$$1</span>');
+        s = s.replace(/(\d{1,3}(?:\.\d+)?)\s*%/g,
+          '<span class="pct-highlight">$1%</span>');
+        s = s.replace(/\b(bullish)\b/gi, '<span class="bull-highlight">$1</span>');
+        s = s.replace(/(看多)/g, '<span class="bull-highlight">$1</span>');
+        s = s.replace(/\b(bearish)\b/gi, '<span class="bear-highlight">$1</span>');
+        s = s.replace(/(看空)/g, '<span class="bear-highlight">$1</span>');
+        parts[i] = s;
+      }
+      return parts.join('');
+    }
+    function renderMarkdown() {
+      document.querySelectorAll('[data-md]').forEach(function(el) {
+        var txt = el.textContent || "";
+        try { el.innerHTML = highlightInline(marked.parse(txt)); }
+        catch (e) { el.innerHTML = "<pre>" + txt + "</pre>"; }
+      });
+    }
+    window.addEventListener('DOMContentLoaded', function() {
+      renderMarkdown();
+      /* key_signals.js auto-bootstraps from window.__SELECTED_STATE__ on
+       * DOMContentLoaded, so by the time this listener fires it has already
+       * populated #keySignalsCard. Call again as a safety net in case script
+       * order differed. */
+      if (window.__SELECTED_STATE__ && typeof window.renderKeySignals === 'function') {
+        window.renderKeySignals(window.__SELECTED_STATE__);
+      }
+    });
+  </script>
+</body>
+</html>

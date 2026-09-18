@@ -6,6 +6,86 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes within the 0.x line are called out explicitly.
 
+<!-- FORK SECTION START — K-darklord/TradingAgents fork changes.
+     Entries below are dated and labelled [Fork] to distinguish from
+     upstream version tags. Upstream releases live below this block. -->
+
+## [Fork] — 2026-09-18
+
+K-darklord/TradingAgents fork extensions layered on top of upstream v0.5.0.
+File-by-file change ledger and merge recipe: [FORK_CHANGES.md](FORK_CHANGES.md).
+
+### Phase 1 — Data source / execution layer separation
+
+- New pluggable `DataSourceRegistry` (`tradingagents/dataflows/registry.py`)
+  that reads `config/data_sources.yaml` and dispatches per
+  `(category, market)` to a configured source chain with graceful
+  fallback on `NoMarketDataError` / `VendorRateLimitError`.
+- New `BaseAdapter` abstract class (`base_adapter.py`) with 9 capabilities
+  (market_data, technical_indicators, fundamentals, balance_sheet,
+  cashflow, income_statement, news, global_news, insider_transactions).
+- New `ticker_router.py` — `.SH/.SZ/.BJ → A_SHARE`, `.HK → HK`,
+  else → `US`. Centralised market-routing logic.
+- New `normalizer.py` — column-name normalization (Chinese/English
+  lowercase/Title Case) + CSV/markdown output formatters matching the
+  existing yfinance shape.
+- New `adapters/` subpackage with `yfinance_adapter` and `akshare_adapter`
+  as thin delegates to the existing vendor functions (no contract change).
+- `interface.py` patched with a registry delegation block (clearly
+  marked `FORK EXTENSION`) at the top of `route_to_vendor()`. Falls back
+  to the legacy `VENDOR_METHODS` chain if the registry path fails.
+
+### Phase 4 — Run All real-time progress system
+
+- New SSE endpoint `/api/run-all/stream` in `dashboard/app.py` streams
+  per-ticker events as Server-Sent Events: `hello`, `all_start`,
+  `ticker_start`, `log`, `ticker_done`, `all_done`.
+- `dashboard/runner.py` accepts an optional `progress_callback` and emits
+  events at ticker start / major sub-steps / ticker done / all done.
+- New `dashboard/static/run_all_progress.js` consumes the SSE stream and
+  renders a fixed-position progress panel with: total progress bar,
+  per-ticker cards (pending/running/done/failed), live event log.
+- On `all_done`, the panel triggers `window.location.reload()` after 800ms
+  so `diff_highlights.js` can re-snapshot and show UPDATED badges on
+  sections that changed during the batch run.
+- Robustness: SSE drop or `EventSource` unavailable falls back to the
+  legacy `/api/run-all` + `/api/run/status` polling path.
+
+### Phase 2 — Tushare integration (A-share + HK)
+
+- New `tradingagents/dataflows/adapters/tushare_adapter.py` — 5
+  capabilities: `market_data`, `fundamentals`, `balance_sheet`,
+  `cashflow`, `income_statement`.
+- A-share daily OHLCV via `pro.daily`, daily indicators (PE/PB/ROE/market
+  cap/turnover) via `pro.daily_basic`, statements via
+  `pro.balancesheet` / `pro.cashflow` / `pro.income`.
+- HK daily via `pro.hk_daily` (rate-limited at 1/hour on 2000-point tier;
+  chain falls back to yfinance).
+- HK ts_code zero-padding (`0700.HK` → `00700.HK`) handled in the adapter.
+- `NO_PROXY=*` set in `initialize()` to bypass the dev proxy at
+  `127.0.0.1:3213` which can't reach tushare's HTTPS endpoint.
+- YAML config flipped: tushare now priority 1 (enabled) for A_SHARE and
+  HK on `market_data` and `fundamentals`.
+
+### Earlier fork work (pre-Phase 1)
+
+- Bloomberg-style dark-theme dashboard (FastAPI on port 8080).
+- Portfolio management (positions, allocation pie, rating history).
+- Stock watchlist with add/remove + daily cron job (weekdays 09:00
+  Beijing time).
+- Key signals extraction (`key_signals.js`) — regex parses price targets
+  (ENTRY / TARGET / STOP LOSS), fundamentals table, sentiment, news from
+  the agent reports.
+- Diff highlights (`diff_highlights.js`) — page-level change detection
+  with UPDATED badges, pulse animation, color-coded pill transitions.
+- PDF print view (`templates/print.html`) — A4-optimized layout, all
+  sections pre-expanded.
+- Reversal detection per ticker.
+- akshare A-share backend (`akshare_backend.py`) with qfq-adjusted
+  OHLCV and eastmoney statement endpoints.
+
+<!-- FORK SECTION END -->
+
 ## [0.5.0] — 2026-09-18
 
 Point-in-time integrity across every dated path, decisions that are recorded as

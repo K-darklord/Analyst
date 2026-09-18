@@ -29,6 +29,62 @@
 
 # TradingAgents: Multi-Agents LLM Financial Trading Framework
 
+<!-- FORK SECTION START — K-darklord/TradingAgents fork extensions.
+     This block is bounded by START/END comments so upstream merges don't
+     have to resolve conflicts inside the fork section. Full change ledger
+     and merge recipe: FORK_CHANGES.md -->
+
+> **Fork notice.** This is the `K-darklord/TradingAgents` fork of
+> `TauricResearch/TradingAgents` v0.5.0. The upstream framework is
+> preserved intact; the fork layers on a Bloomberg-style local dashboard,
+> a pluggable data-source registry (YAML-configured, multi-vendor fallback),
+> real-time Run All progress streaming, and tushare integration for A-share
+> + HK market data. See [FORK_CHANGES.md](FORK_CHANGES.md) for the full
+> file-by-file change ledger and the upstream merge recipe.
+
+## Fork extensions
+
+- **Pluggable data source registry** (`config/data_sources.yaml` +
+  `tradingagents/dataflows/registry.py` + `adapters/`). Add or remove data
+  sources by editing YAML; the registry walks the per-market chain in
+  priority order with graceful fallback. yfinance, akshare, and tushare
+  adapters shipped.
+- **Tushare integration** (A-share + HK). 2000-point tier: daily OHLCV,
+  daily_basic indicators (PE/PB/ROE/market cap), income/balance/cashflow
+  statements. HK `hk_daily` rate-limited at 1/hour; chain falls back to
+  yfinance.
+- **Local HTTP dashboard** at `http://localhost:8080` (FastAPI). Bloomberg
+  dark theme, portfolio management, stock watchlist, key signals extraction
+  (price targets / fundamentals / sentiment / news), per-ticker reversal
+  detection, PDF print view, daily cron job.
+- **Real-time Run All progress** via SSE (`/api/run-all/stream`). Live
+  per-ticker progress cards + event log + auto-refresh that activates
+  UPDATED diff highlights when the batch completes.
+- **A-share support** end-to-end: `.SH/.SZ/.BJ` symbols auto-route to
+  tushare/akshare; `.HK` symbols route to tushare/yfinance. Ticker
+  routing centralised in `ticker_router.py`.
+
+### Quick start (fork)
+
+```bash
+# 1. Conda env (py3.11 + langgraph)
+conda create -n fundteam python=3.11 -y && conda activate fundteam
+
+# 2. Install upstream + fork extras
+cd TradingAgents
+pip install -e ".[fork]"
+
+# 3. Configure .env (DEEPSEEK_API_KEY, TUSHARE_TOKEN)
+cp .env.example .env
+# edit .env: DEEPSEEK_API_KEY=sk-...  TUSHARE_TOKEN=...
+
+# 4. Run the dashboard
+nohup python -m uvicorn dashboard.app:app --host 0.0.0.0 --port 8080 &
+# open http://localhost:8080
+```
+
+<!-- FORK SECTION END -->
+
 ## News
 - [2026-09] **TradingAgents v0.5.0** released with point-in-time integrity across every dated path, SEC EDGAR fundamentals served as filed, backtesting over a ticker and date grid, portfolio-aware runs, and current model lineups across every provider. See [CHANGELOG.md](CHANGELOG.md) for the full list.
 - [2026-08] **TradingAgents v0.4.0** released with look-ahead / point-in-time fixes across FRED macro, social sentiment, and the decision-log memory; clearer decision signals; working CLI checkpoint resume; Trader price grounding; and the GPT-5.6 and GLM-5.3 models.

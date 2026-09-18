@@ -1,0 +1,114 @@
+# TradingAgents data source configuration.
+#
+# This file is the single source of truth for which data sources are enabled
+# for each market and data category. The runtime DataSourceRegistry reads it
+# at startup and exposes a pluggable list of adapters per category. Adding a
+# new source = add a row here + ship the adapter; removing one = set
+# `enabled: false`. No code changes required for the common case.
+#
+# Schema:
+#   <category>:        # market_data | fundamentals | sentiment | news
+#     <MARKET>:         # US | A_SHARE | HK  (see ticker_router for routing)
+#       - source: <adapter-name>   # must match an adapter registered in registry.py
+#         priority: <int>          # lower = preferred; 1 = primary
+#         enabled: true|false      # false = skipped even if listed
+#         config:                  # optional per-source overrides (credentials,
+#           <key>: <value>         # rate limits, etc.) merged onto defaults
+#
+# Markets are defined by ticker_router.py:
+#   - US       — bare tickers (NVDA, AAPL) or non-A/ non-HK suffixed symbols
+#   - A_SHARE  — .SH / .SZ / .BJ suffix (e.g. 600519.SH, 000001.SZ)
+#   - HK       — .HK suffix (e.g. 0700.HK, 9988.HK)
+#
+# When a source is unavailable (raises NoMarketDataError / VendorRateLimitError),
+# the registry walks the rest of the enabled chain in priority order. A disabled
+# source is skipped silently. An empty chain raises a clear error.
+
+market_data:
+  US:
+    - source: yfinance
+      priority: 1
+      enabled: true
+    - source: alpha_vantage
+      priority: 2
+      enabled: false
+  A_SHARE:
+    - source: tushare
+      priority: 1
+      enabled: true                 # Phase 2: tushare now wired up
+    - source: akshare
+      priority: 2
+      enabled: true
+  HK:
+    - source: tushare
+      priority: 1
+      enabled: true                 # Phase 2: tushare now wired up
+    - source: yfinance
+      priority: 2
+      enabled: true
+
+fundamentals:
+  US:
+    - source: yfinance
+      priority: 1
+      enabled: true
+    - source: alpha_vantage
+      priority: 2
+      enabled: false
+    - source: sec_edgar
+      priority: 3
+      enabled: false
+  A_SHARE:
+    - source: tushare
+      priority: 1
+      enabled: true                 # Phase 2
+    - source: akshare
+      priority: 2
+      enabled: true
+  HK:
+    - source: tushare
+      priority: 1
+      enabled: true                 # Phase 2
+    - source: yfinance
+      priority: 2
+      enabled: true
+
+sentiment:
+  US:
+    - source: reddit
+      priority: 1
+      enabled: true
+    - source: stocktwits
+      priority: 2
+      enabled: true
+  A_SHARE:
+    - source: eastmoney_guba
+      priority: 1
+      enabled: false                # adapter not shipped yet
+    - source: xueqiu
+      priority: 2
+      enabled: false
+  HK:
+    - source: xueqiu
+      priority: 1
+      enabled: false
+
+news:
+  US:
+    - source: yfinance
+      priority: 1
+      enabled: true
+    - source: alpha_vantage
+      priority: 2
+      enabled: false
+  A_SHARE:
+    - source: cls_cn
+      priority: 1
+      enabled: false                # adapter not shipped yet
+    - source: eastmoney_news
+      priority: 2
+      enabled: false
+  HK:
+    - source: aastocks
+      priority: 1
+      enabled: false
