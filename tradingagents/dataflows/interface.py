@@ -1,5 +1,14 @@
 import logging
 
+from .akshare_backend import (
+    get_akshare_balance_sheet,
+    get_akshare_cashflow,
+    get_akshare_fundamentals,
+    get_akshare_income_statement,
+    get_akshare_stock_data,
+    get_akshare_stock_stats_indicators_window,
+    is_ashare as _is_ashare,
+)
 from .alpha_vantage import (
     get_balance_sheet as get_alpha_vantage_balance_sheet,
     get_cashflow as get_alpha_vantage_cashflow,
@@ -84,6 +93,7 @@ TOOLS_CATEGORIES = {
 
 VENDOR_LIST = [
     "yfinance",
+    "akshare",
     "sec_edgar",
     "fred",
     "polymarket",
@@ -103,31 +113,37 @@ VENDOR_METHODS = {
     "get_stock_data": {
         "alpha_vantage": get_alpha_vantage_stock,
         "yfinance": get_YFin_data_online,
+        "akshare": get_akshare_stock_data,
     },
     # technical_indicators
     "get_indicators": {
         "alpha_vantage": get_alpha_vantage_indicator,
         "yfinance": get_stock_stats_indicators_window,
+        "akshare": get_akshare_stock_stats_indicators_window,
     },
     # fundamental_data
     "get_fundamentals": {
         "alpha_vantage": get_alpha_vantage_fundamentals,
         "yfinance": get_yfinance_fundamentals,
+        "akshare": get_akshare_fundamentals,
     },
     "get_balance_sheet": {
         "alpha_vantage": get_alpha_vantage_balance_sheet,
         "sec_edgar": get_sec_edgar_balance_sheet,
         "yfinance": get_yfinance_balance_sheet,
+        "akshare": get_akshare_balance_sheet,
     },
     "get_cashflow": {
         "alpha_vantage": get_alpha_vantage_cashflow,
         "sec_edgar": get_sec_edgar_cashflow,
         "yfinance": get_yfinance_cashflow,
+        "akshare": get_akshare_cashflow,
     },
     "get_income_statement": {
         "alpha_vantage": get_alpha_vantage_income_statement,
         "sec_edgar": get_sec_edgar_income_statement,
         "yfinance": get_yfinance_income_statement,
+        "akshare": get_akshare_income_statement,
     },
     # news_data
     "get_news": {
@@ -175,7 +191,27 @@ def get_vendor(category: str, method: str = None) -> str:
     return config.get("data_vendors", {}).get(category, "default")
 
 def route_to_vendor(method: str, *args, **kwargs):
-    """Route method calls to appropriate vendor implementation with fallback support."""
+    """Route method calls to appropriate vendor implementation.
+
+    A-share symbols (.SH/.SZ/.BJ) auto-route to akshare if akshare is in the
+    available vendors for that method; otherwise fall back to the configured
+    chain. US tickers use the configured chain. This is a per-call override:
+    it does NOT change the configured default, so a US-symbol run is unaffected.
+    """
+    # A-share symbol routing: if the first positional arg looks like an
+    # A-share ticker, prefer akshare (overrides config). US tickers use the
+    # configured chain. akshare owns A-share data; yfinance does not.
+    if args and isinstance(args[0], str) and _is_ashare(args[0]):
+        if method in VENDOR_METHODS and "akshare" in VENDOR_METHODS[method]:
+            try:
+                return VENDOR_METHODS[method]["akshare"](*args, **kwargs)
+            except (NoMarketDataError, VendorRateLimitError, VendorNotConfiguredError) as e:
+                logger.warning(
+                    "akshare failed for A-share %s on %s: %s; falling back to configured chain",
+                    args[0], method, e,
+                )
+                # fall through to the configured chain below
+
     category = get_category_for_method(method)
     vendor_config = get_vendor(category, method)
     primary_vendors = [v.strip() for v in vendor_config.split(',')]
