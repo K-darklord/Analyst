@@ -23,6 +23,91 @@
 # When a source is unavailable (raises NoMarketDataError / VendorRateLimitError),
 # the registry walks the rest of the enabled chain in priority order. A disabled
 # source is skipped silently. An empty chain raises a clear error.
+#
+# ============================================================================
+# DATA SOURCE ROADMAP & COVERAGE MATRIX  (updated 2026-09-19)
+# ============================================================================
+#
+# Coverage status by category x market:
+#
+#   Category              | US        | A_SHARE   | HK        | A-share gap
+#   ----------------------+-----------+-----------+-----------+------------------
+#   market_data (OHLCV)   | ✅ yf     | ✅ ts+aks | ✅ ts+yf  | —
+#   technical_indicators  | ✅ yf     | ✅ aks    | ✅ yf     | —
+#   fundamentals         | ✅ yf     | ✅ ts+aks | ✅ ts+yf  | —
+#   balance/cashflow/in   | ✅ yf     | ✅ ts+aks | ✅ ts+yf  | —
+#   news                  | ✅ yf     | ✅ ts     | ✅ ts     | —
+#   global_news           | ✅ yf     | ✅ ts(fb) | ✅ ts     | —
+#   insider_transactions  | ✅ yf     | ✅ ts     | ✅ ts     | —
+#   macro_indicators      | ✅ FRED   | ✅ ts     | ✅ ts     | — (CN macro via tushare)
+#   prediction_markets    | ✅ poly   | ❌ poly   | ❌ poly   | no CN prediction mkt
+#   sentiment (social)    | r/st      | xq+gb+px | xq+px    | xueqiu(eastmoney_guba fallback) + capital-flow proxy
+#
+# Shipped adapters: yfinance, akshare, tushare, eastmoney_guba, xueqiu
+# Planned adapters:    eastmoney_news, cls_cn, aastocks
+#
+# ----------------------------------------------------------------------------
+# TUSHARE (10000 points) — verified available interfaces (2026-09-19):
+# ----------------------------------------------------------------------------
+#   Market:    daily, daily_basic, hk_daily, hk_daily_basic
+#   Financial: balancesheet, cashflow, income
+#              hk_income, hk_balancesheet, hk_cashflow (港股财报独立权限, long-format)
+#   News:      major_news(要闻), anns_d(公告), research_report(研报)
+#   Capital:   moneyflow(资金流), margin_detail(融资融券), top_list(龙虎榜),
+#              stk_holdertrade(股东增减持), stk_holdernumber(股东户数),
+#              share_float(限售解禁), block_trade(大宗交易), cyq_perf(筹码)
+#   Macro:     cn_cpi, cn_pmi, shibor (also cn_m2, cn_gdp, cn_pmi — available)
+#   Sector:    index_classify(行业), ths_index/ths_member(同花顺概念)
+#   Earnings:  disclosure_date, express(业绩快报)
+#   Broken:    concept (server-side bug: Unknown column 'name') — use ths_index
+#
+# ----------------------------------------------------------------------------
+# CANDIDATE DATA SOURCES TO ADD (priority-ordered)
+# ----------------------------------------------------------------------------
+#
+# [P0] Fill A-share sentiment gap (biggest missing category):
+#   - eastmoney_guba  — 东方财富股吧, retail forum, most direct sentiment signal.
+#                        akshare already uses eastmoney datacenter; scraping
+#                        guba posts is feasible. Coverage: A_SHARE sentiment.
+#   - xueqiu          — 雪球, higher-quality discussion + portfolio data.
+#                        Requires cookie/login for full API; unofficial
+#                        endpoints exist. Coverage: A_SHARE + HK sentiment.
+#   - tushare proxy   — moneyflow + margin_detail + top_list as sentiment
+#                        proxy (capital flow reflects retail/institutional
+#                        sentiment). No new adapter needed; wire into
+#                        sentiment_analyst A-share branch. Coverage: A_SHARE.
+#
+# [P1] Fill A-share macro gap:
+#   - tushare macro   — cn_cpi, cn_pmi, shibor, cn_m2, cn_gdp already verified.
+#                        Add macro_data capability to tushare_adapter + route
+#                        get_macro_indicators by market. Coverage: A_SHARE + HK.
+#
+# [P2] Fill A-share prediction-market gap:
+#   - No CN equivalent of Polymarket exists. Alternatives:
+#     * 北向资金 (moneyflow_hsgt via tushare) — foreign capital sentiment
+#     * 期权IV (50ETF/300ETF options IV) — market fear/greed proxy
+#     * research_report rating distribution — analyst consensus shift
+#
+# [P3] Additional A-share news sources:
+#   - cls_cn (财联社)     — real-time financial news wire, high speed. API key.
+#   - eastmoney_news     — 东方财富 news, broader coverage than tushare.
+#   - 新浪财经 (sina)     — news + real-time quotes; public endpoints.
+#
+# [P4] Additional sentiment sources (experimental):
+#   - 小红书 (xiaohongshu/RED) — retail investor discussion growing fast.
+#                                Requires scraping; anti-bot measures present.
+#   - 同花顺 (10jqka)         — concept hotness + discussion.
+#
+# [P5] HK-specific:
+#   - aastocks — HK stock news + data. Already in YAML (disabled).
+#   - xueqiu   — also covers HK stocks.
+#
+# ----------------------------------------------------------------------------
+# US-specific notes:
+#   - tushare is DISABLED for US news (returns A-share news, not US news).
+#   - get_insider_transactions is now wired into fundamentals_analyst.
+#   - US macro uses FRED (legacy chain); A-share/HK macro uses tushare.
+# ============================================================================
 
 market_data:
   US:
@@ -42,10 +127,13 @@ market_data:
   HK:
     - source: tushare
       priority: 1
-      enabled: true                 # Phase 2: tushare now wired up
-    - source: yfinance
+      enabled: true                 # hk_daily (rate-limited 1/hr)
+    - source: akshare
       priority: 2
-      enabled: true
+      enabled: true                 # stock_hk_hist (eastmoney, free)
+    - source: yfinance
+      priority: 3
+      enabled: true                 # fallback (rate-limited)
 
 fundamentals:
   US:
@@ -68,12 +156,30 @@ fundamentals:
   HK:
     - source: tushare
       priority: 1
-      enabled: true                 # Phase 2
+      enabled: true                 # hk_income/hk_balancesheet/hk_cashflow (港股财报独立权限)
     - source: yfinance
       priority: 2
-      enabled: true
+      enabled: true                 # fallback
+
+# Macroeconomic indicators.
+#   US      -> FRED (legacy chain; no registry adapter yet)
+#   A_SHARE -> tushare (cn_cpi, cn_pmi, shibor)
+#   HK      -> tushare (China macro also drives HK)
+macro_data:
+  US: []                             # falls back to legacy FRED
+  A_SHARE:
+    - source: tushare
+      priority: 1
+      enabled: true                 # 10000 points: cn_cpi/cn_pmi/shibor
+  HK:
+    - source: tushare
+      priority: 1
+      enabled: true                 # 10000 points
 
 sentiment:
+  # US sentiment is served by direct calls to reddit.py + stocktwits.py in
+  # sentiment_analyst (not via registry). The YAML chain below is for future
+  # adapter-based dispatch.
   US:
     - source: reddit
       priority: 1
@@ -81,34 +187,63 @@ sentiment:
     - source: stocktwits
       priority: 2
       enabled: true
+  # A-share sentiment sources (priority-ordered):
+  #   1. xueqiu         — 雪球 discussion (needs XUEQIU_CHROME_PROFILE in .env
+  #                       pointing to a Chrome profile logged in to xueqiu.com)
+  #   2. eastmoney_guba — 东方财富股吧 posts (no auth, scraped)
+  # When both fail, sentiment_analyst falls back to a tushare capital-flow
+  # proxy (moneyflow / margin_detail / top_list) inline.
   A_SHARE:
-    - source: eastmoney_guba
-      priority: 1
-      enabled: false                # adapter not shipped yet
     - source: xueqiu
+      priority: 1
+      enabled: true                 # needs XUEQIU_CHROME_PROFILE env var
+    - source: eastmoney_guba
       priority: 2
-      enabled: false
+      enabled: true                 # public, no auth
+    - source: xiaohongshu
+      priority: 3
+      enabled: false                # candidate; scraping-only, anti-bot
   HK:
     - source: xueqiu
       priority: 1
-      enabled: false
+      enabled: true                 # needs XUEQIU_CHROME_PROFILE env var
+    - source: eastmoney_guba
+      priority: 2
+      enabled: false                # guba covers A-share only; HK limited
 
 news:
   US:
     - source: yfinance
       priority: 1
       enabled: true
+    # NOTE: tushare returns A-share news, NOT US news. Kept here as
+    # disabled so the config is self-documenting; re-enable only if a
+    # US-specific tushare feed exists.
+    - source: tushare
+      priority: 2
+      enabled: false                # wrong market for US news (returns A-share news)
     - source: alpha_vantage
-      priority: 2
+      priority: 3
       enabled: false
+  # A-share news: tushare covers announcements + research reports + major
+  # news. Candidates for broader/real-time coverage:
+  #   cls_cn (财联社)     — real-time financial news wire, needs API key
+  #   eastmoney_news     — 东方财富 news, broader than tushare
+  #   sina (新浪财经)     — public news endpoints
   A_SHARE:
+    - source: tushare
+      priority: 1
+      enabled: true                 # 10000 points: anns_d + research_report + major_news
     - source: cls_cn
-      priority: 1
-      enabled: false                # adapter not shipped yet
-    - source: eastmoney_news
       priority: 2
-      enabled: false
+      enabled: false                # adapter not shipped yet; needs API key
+    - source: eastmoney_news
+      priority: 3
+      enabled: false                # adapter not shipped yet
   HK:
-    - source: aastocks
+    - source: tushare
       priority: 1
-      enabled: false
+      enabled: true                 # 10000 points
+    - source: aastocks
+      priority: 2
+      enabled: false                # adapter not shipped yet

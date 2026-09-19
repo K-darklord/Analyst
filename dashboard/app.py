@@ -29,6 +29,7 @@ from fastapi.templating import Jinja2Templates
 import uvicorn
 
 from dashboard import runner
+from dashboard.ticker_names import get_ticker_name
 from dashboard.state_reader import (
     PORTFOLIO_PALETTE,
     add_holding,
@@ -434,6 +435,7 @@ def _watchlist_summary() -> list[dict]:
         rev = detect_reversal(ticker)
         out.append({
             "ticker": ticker,
+            "name": get_ticker_name(ticker),
             "latest_state": latest_date,
             "latest_rating": rating_text,
             "reversal_status": rev.get("reversal_type", "none"),
@@ -472,6 +474,7 @@ def _build_index_context(request: Request) -> dict:
     return {
         "watchlist": _watchlist_summary(),
         "selected_ticker": selected_ticker,
+        "selected_name": get_ticker_name(selected_ticker) if selected_ticker else None,
         "selected_state": selected_state or {},
         "selected_date": selected_date,
         "available_dates": available_dates,

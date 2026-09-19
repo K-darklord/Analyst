@@ -106,6 +106,7 @@
         <span class="wc-ticker">{{ w.ticker }}</span>
         <button class="wc-remove" onclick="removeTicker('{{ w.ticker }}'); event.preventDefault();">&#10005;</button>
       </div>
+      {% if w.name %}<div class="wc-name">{{ w.name }}</div>{% endif %}
       <div class="wc-rating">{{ w.latest_rating or '&#8212;' }}</div>
       <div class="wc-meta">
         <span class="reversal-badge reversal-{{ w.reversal_status if w.reversal_status else 'none' }}">
@@ -124,7 +125,10 @@
 <!-- ===== D. TICKER SUMMARY + DATE STRIP ===== -->
 <section class="summary">
   <div class="summary-left">
-    <div class="ticker-label">{{ selected_ticker or "NONE" }}</div>
+    <div class="ticker-label">
+      {{ selected_ticker or "NONE" }}
+      {% if selected_name %}<span class="ticker-name"> · {{ selected_name }}</span>{% endif %}
+    </div>
     <div class="rating-display{% if selected_state and selected_state.final_trade_decision %} rating-{{ rating_class(selected_state.final_trade_decision) }}{% endif %}">
       {% if selected_state and selected_state.final_trade_decision %}
         {{ parse_rating(selected_state.final_trade_decision)[0] }}
@@ -406,10 +410,10 @@ function renderMarkdown() {
 }
 window.addEventListener('DOMContentLoaded', function() {
   renderMarkdown();
-  /* Render key signals using the JSON-serialized state injected below. */
-  if (window.__SELECTED_STATE__ && typeof window.renderKeySignals === 'function') {
-    window.renderKeySignals(window.__SELECTED_STATE__);
-  }
+  /* key_signals.js's own bootstrap() calls renderKeySignals(state) on
+     DOMContentLoaded. Do NOT call it here too — a second call finds
+     prev==current (just stored by the first call) and overwrites the
+     strikethrough HTML with a non-diff version, hiding the highlight. */
 });
 
 function addTicker() {

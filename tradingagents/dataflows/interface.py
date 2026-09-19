@@ -180,6 +180,13 @@ VENDOR_METHODS = {
 # methods listed here are eligible for the registry dispatch path; other
 # methods fall through to the legacy VENDOR_METHODS chain unchanged.
 #
+# FORK EXTENSION: Apply load_ohlcv monkey-patch so A-share symbols route
+# through akshare instead of yfinance (which gets rate-limited for .SH -> .SS).
+try:
+    from . import fork_patches  # noqa: F401 -- side-effect import
+except ImportError:
+    pass
+
 # The mapping is intentionally conservative: it only covers capabilities
 # the registry currently knows about (market_data, fundamentals, news and
 # their sub-capabilities). macro_data and prediction_markets stay on the
@@ -194,6 +201,7 @@ REGISTRY_METHOD_MAP: dict[str, tuple[str, str]] = {
     "get_news":                  ("news",          "news"),
     "get_global_news":            ("news",          "global_news"),
     "get_insider_transactions":   ("fundamentals",  "insider_transactions"),
+    "get_macro_indicators":       ("macro_data",    "macro_data"),
 }
 
 
@@ -260,10 +268,25 @@ def _dispatch_via_registry(method: str, *args, **kwargs):
     # symbol — the market is whatever the YAML has configured for US
     # (since macro news is a global feed, not per-market).
     symbol = kw.get("symbol")
-    market = route_market(symbol) if symbol else "US"
+    if symbol:
+        market = route_market(symbol)
+    elif method == "get_macro_indicators":
+        # macro_data has no symbol. Try A_SHARE first (tushare CN macro),
+        # then fall back to US (FRED) on failure. The dispatch below walks
+        # the chain; if A_SHARE has no data we re-dispatch to US.
+        market = "A_SHARE"
+    else:
+        market = "US"
 
     reg = get_registry()
-    return reg.dispatch(category, market, capability=capability, **kw)
+    try:
+        return reg.dispatch(category, market, capability=capability, **kw)
+    except NoMarketDataError:
+        # For symbol-less macro calls, fall back to US (FRED) if A_SHARE
+        # had no enabled source or returned no data.
+        if method == "get_macro_indicators" and market == "A_SHARE":
+            return reg.dispatch(category, "US", capability=capability, **kw)
+        raise
 
 
 def _coerce_method_kwargs(method: str, args: tuple, kwargs: dict) -> dict:
@@ -284,9 +307,10 @@ def _coerce_method_kwargs(method: str, args: tuple, kwargs: dict) -> dict:
         "get_balance_sheet":       ["symbol"],
         "get_cashflow":            ["symbol"],
         "get_income_statement":    ["symbol"],
-        "get_news":                ["symbol"],
-        "get_global_news":         [],
-        "get_insider_transactions": ["symbol"],
+        "get_news":                ["symbol", "start_date", "end_date"],
+        "get_global_news":         ["curr_date", "look_back_days", "limit"],
+        "get_insider_transactions": ["symbol", "curr_date"],
+        "get_macro_indicators":    ["indicator", "curr_date", "look_back_days"],
     }
     order = positional_order.get(method, [])
     for i, val in enumerate(args):
@@ -339,12 +363,19 @@ def route_to_vendor(method: str, *args, **kwargs):
         # this; get_global_news has none, so we always probe with market=US.
         try:
             from .ticker_router import route as _route_market
-            _probe_symbol = args[0] if (args and isinstance(args[0], str)) else None
-            _probe_market = _route_market(_probe_symbol) if _probe_symbol else "US"
+            if method == "get_macro_indicators":
+                # macro_data has no symbol arg (args[0] is the indicator name).
+                # Probe A_SHARE first (tushare CN macro); _dispatch falls back
+                # to US (FRED) on failure.
+                _probe_market = "A_SHARE"
+            else:
+                _probe_symbol = args[0] if (args and isinstance(args[0], str)) else None
+                _probe_market = _route_market(_probe_symbol) if _probe_symbol else "US"
         except Exception:
             _probe_market = "US"
         _cat, _cap = REGISTRY_METHOD_MAP[method]
-        if _registry_has_enabled_source(_cat, _probe_market):
+        _has_src = _registry_has_enabled_source(_cat, _probe_market)
+        if _has_src:
             try:
                 return _dispatch_via_registry(method, *args, **kwargs)
             except (NoMarketDataError, VendorNotConfiguredError) as e:
@@ -355,8 +386,6 @@ def route_to_vendor(method: str, *args, **kwargs):
                 )
                 # fall through to the legacy chain below
             except Exception as e:
-                # Unexpected registry error: log loudly, but don't crash the
-                # run — the legacy chain may still serve the request.
                 logger.warning(
                     "Registry path errored for %s: %s; falling back to "
                     "legacy VENDOR_METHODS chain.", method, e,

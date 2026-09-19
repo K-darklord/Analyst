@@ -585,13 +585,10 @@
     }
     window.addEventListener('DOMContentLoaded', function() {
       renderMarkdown();
-      /* key_signals.js auto-bootstraps from window.__SELECTED_STATE__ on
-       * DOMContentLoaded, so by the time this listener fires it has already
-       * populated #keySignalsCard. Call again as a safety net in case script
-       * order differed. */
-      if (window.__SELECTED_STATE__ && typeof window.renderKeySignals === 'function') {
-        window.renderKeySignals(window.__SELECTED_STATE__);
-      }
+      /* key_signals.js's own bootstrap() calls renderKeySignals(state) on
+       * DOMContentLoaded. Do NOT call it here too — a second call finds
+       * prev==current (just stored by the first call) and overwrites the
+       * strikethrough HTML, hiding the visual highlight. */
     });
   </script>
 </body>

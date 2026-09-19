@@ -24,7 +24,13 @@
   // ---------- price validation (Round 4 fix) ----------
   // Tokens that, when found within 30 chars of a candidate price number,
   // indicate it is NOT a stock price (it's a market cap, EPS, percent, etc.).
-  var NON_PRICE_TOKENS = /(\b%|\bpercent\b|\bbps\b|\bbillion\b|\bmillion\b|\btrillion\b|\bBn\b|\bMn\b|\bB\b|\bM\b|亿|万|%)/i;
+  // Tokens that, when found within 30 chars of a candidate price number,
+  // indicate it is NOT a stock price (it's a market cap, EPS, percent, etc.).
+  // NOTE: B/M/Bn/Mn use a negative-letter-lookahead instead of \b so that
+  // "44B" (44 billion, no space) is caught — \bB\b missed it because there
+  // is no word boundary between a digit and B. `日` rejects moving-average
+  // contexts like "50日均线".
+  var NON_PRICE_TOKENS = /(%|percent|bps|billion|million|trillion|Bn|Mn|B(?![A-Za-z])|M(?!n)(?![A-Za-z])|亿|万|日)/i;
 
   // Strict price validator. Returns the number if it plausibly is a stock
   // price, otherwise null. Rejects:
@@ -73,9 +79,14 @@
       var numEnd = numStart + m[1].length;
       var ok = validatePrice(raw, text, numStart, numEnd);
       if (ok != null) {
-        // Negative context filter: skip prices in cautionary context
-        var before20 = text.slice(Math.max(0, m.index - 20), m.index);
-        if (/(?:避免|不要|而非|勿|不应|不可|不要因|别因为)/.test(before20)) continue;
+        // Negative context filter: skip prices in cautionary context.
+        // Clamp the window to the current sentence (don't cross \n, 。, ；,
+        // ., ！, ？) so a particle like "而非" from an earlier unrelated
+        // clause ("减仓而非清仓") doesn't reject a later "Entry Price".
+        var rawBefore = text.slice(Math.max(0, m.index - 25), m.index);
+        var sbIdx = rawBefore.search(/[\n。；.！？]/);
+        var beforeSent = (sbIdx !== -1) ? rawBefore.slice(sbIdx + 1) : rawBefore;
+        if (/(?:避免|不要|而非|勿|不应|不可|不要因|别因为)/.test(beforeSent)) continue;
         return { value: ok, start: numStart, end: numEnd };
       }
     }
@@ -121,9 +132,11 @@
       var numEnd = numStart + m[1].length;
       var ok = validatePrice(raw, text, numStart, numEnd);
       if (ok != null) {
-        // Negative context filter
-        var before20 = text.slice(Math.max(0, numStart - 20), numStart);
-        if (/(?:避免|不要|而非|勿|不应|不可|不要因|别因为)/.test(before20)) continue;
+        // Negative context filter — sentence-bounded (see findValidPrice).
+        var rawBefore = text.slice(Math.max(0, numStart - 25), numStart);
+        var sbIdx = rawBefore.search(/[\n。；.！？]/);
+        var beforeSent = (sbIdx !== -1) ? rawBefore.slice(sbIdx + 1) : rawBefore;
+        if (/(?:避免|不要|而非|勿|不应|不可|不要因|别因为)/.test(beforeSent)) continue;
         return { value: ok, start: numStart, end: numEnd };
       }
     }
@@ -188,8 +201,11 @@
       target_price:  searchPriceFields(state, PRICE_FIELDS, 'target(?:\\s*price)?|price\\s*target|目标价|目标位'),
       stop_loss:     searchPriceFields(state, PRICE_FIELDS, 'stop\\s*loss|止损'),
       take_profit:   searchPriceFields(state, PRICE_FIELDS, 'take\\s*profit|止盈'),
-      support:       searchPriceFields(state, PRICE_FIELDS, 'support|支撑'),
-      resistance:    searchPriceFields(state, PRICE_FIELDS, 'resistance|阻力'),
+      // Support/resistance: require explicit level/line/price qualifier or
+      // ordinal marker (第一支撑 / 强阻力 etc.) so narrative uses like
+      // "结构性支撑" / "支撑扩张" / "上方阻力参考" don't match spurious prices.
+      support:       searchPriceFields(state, PRICE_FIELDS, 'support\\s*(?:level|price|line)|第一支撑|第二支撑|第三支撑|战略支撑|支撑位|支撑线|支撑价'),
+      resistance:    searchPriceFields(state, PRICE_FIELDS, 'resistance\\s*(?:level|price|line)|强阻力|第一阻力|第二阻力|第三阻力|阻力位|阻力线|阻力价'),
     };
   }
 
@@ -207,7 +223,8 @@
       pe_ratio:       grab('(?:P/E(?:\\s*ratio)?|PE(?:\\s*\\(TTM\\))?|市盈率)[^\\d]{0,15}(\\d{1,4}(?:\\.\\d{1,4})?)'),
       pb_ratio:       grab('(?:P/B(?:\\s*ratio)?|市净率)[^\\d]{0,15}(\\d{1,4}(?:\\.\\d{1,4})?)'),
       roe:            grab('(?:ROE|净资产收益率)[^\\d]{0,15}(\\d{1,4}(?:\\.\\d{1,4})?)'),
-      eps:            grab('(?:EPS|每股收益)[^\\d]{0,15}(\\$?\\s*-?\\d{1,5}(?:\\.\\d{1,4})?)'),
+      // EPS: require a $ qualifier between label and number so 'EPS反推...50日均线' isn't matched.
+      eps:            grab('(?:EPS|每股收益)[^\\d$]{0,15}\\$\\s*(\\d{1,5}(?:\\.\\d{1,4})?)'),
       debt_to_equity: grab('(?:D\\s*/\\s*E|debt\\s*to\\s*equity|债务[/／]权益|资产负债率)[^\\d]{0,15}(\\d{1,4}(?:\\.\\d{1,4})?)'),
       revenue_growth: grab('(?:revenue\\s*growth|营收(?:增长|同比)|收入(?:增长|同比))[^\\d]{0,15}(-?\\d{1,3}(?:\\.\\d{1,4})?)\\s*%'),
     };

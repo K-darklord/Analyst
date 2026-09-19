@@ -46,10 +46,134 @@ from tradingagents.agents.utils.structured import (
 )
 from tradingagents.dataflows.reddit import fetch_reddit_posts
 from tradingagents.dataflows.stocktwits import fetch_stocktwits_messages
+from tradingagents.dataflows.ticker_router import is_ashare, is_hk
 
 
 def _seven_days_back(trade_date: str) -> str:
     return (datetime.strptime(trade_date, "%Y-%m-%d") - timedelta(days=7)).strftime("%Y-%m-%d")
+
+
+def _fetch_ashare_capital_flow(ticker: str, start_date: str, end_date: str) -> str:
+    """Fetch A-share capital-flow data as a sentiment proxy.
+
+    A-share stocks have no Reddit/StockTwits coverage. We use tushare's
+    moneyflow (资金流向), margin_detail (融资融券), and top_list (龙虎榜)
+    as proxy sentiment signals:
+      - Net money flow = retail/institutional buying pressure
+      - Margin balance change = leveraged sentiment
+      - Top list appearances = institutional/游资 activity
+
+    Returns a markdown block for the sentiment prompt.
+    """
+    try:
+        import os
+        import tushare as ts
+        import pandas as pd
+        token = os.environ.get("TUSHARE_TOKEN")
+        if not token:
+            return "<unavailable: TUSHARE_TOKEN not set>"
+        pro = ts.pro_api(timeout=30)
+        ts_start = start_date.replace("-", "")
+        ts_end = end_date.replace("-", "")
+    except Exception as e:
+        return f"<unavailable: tushare init failed: {e}>"
+
+    sections = []
+
+    # 1. Money flow (资金流向) — daily net inflow/outflow
+    try:
+        mf = pro.moneyflow(ts_code=ticker, start_date=ts_start, end_date=ts_end)
+        if mf is not None and not mf.empty and "net_mf_amount" in mf.columns:
+            mf = mf.sort_values("trade_date")
+            net_vals = pd.to_numeric(mf["net_mf_amount"], errors="coerce").dropna()
+            # tushare net_mf_amount is in 千元; /10 -> 万元
+            total_net = net_vals.sum() / 10
+            avg_net = net_vals.mean() / 10 if len(net_vals) else 0
+            pos_days = (net_vals > 0).sum()
+            neg_days = (net_vals < 0).sum()
+            sections.append(
+                f"### 资金流向 (Money Flow)\n"
+                f"- 区间净流入: {total_net:+.0f} 万元\n"
+                f"- 日均净流入: {avg_net:+.0f} 万元\n"
+                f"- 净流入天数: {pos_days} / 净流出天数: {neg_days}\n"
+                f"- 近期明细 (单位: 千元):\n"
+                + mf[["trade_date", "buy_sm_amount", "sell_sm_amount", "net_mf_amount"]]
+                .tail(10)
+                .to_string(index=False)
+            )
+    except Exception as e:
+        sections.append(f"### 资金流向 (Money Flow)\n<unavailable: {e}>")
+
+    # 2. Margin trading (融资融券) — leveraged position changes
+    try:
+        mg = pro.margin_detail(ts_code=ticker, start_date=ts_start, end_date=ts_end)
+        if mg is not None and not mg.empty and "rzye" in mg.columns:
+            mg = mg.sort_values("trade_date")
+            rzye = pd.to_numeric(mg["rzye"], errors="coerce").dropna()  # 融资余额
+            if len(rzye) >= 2:
+                change = (rzye.iloc[-1] - rzye.iloc[0]) / 1e4
+                sections.append(
+                    f"### 融资融券 (Margin Trading)\n"
+                    f"- 最新融资余额: {rzye.iloc[-1]/1e4:.0f} 万元\n"
+                    f"- 区间融资余额变化: {change:+.0f} 万元\n"
+                    f"- 融资余额上升 = 杠杆资金看多；下降 = 杠杆资金看空"
+                )
+    except Exception as e:
+        sections.append(f"### 融资融券 (Margin Trading)\n<unavailable: {e}>")
+
+    # 3. Top list (龙虎榜) — institutional/游资 activity
+    try:
+        # top_list needs trade_date, not ts_code+range. Scan recent trade dates.
+        top_entries = []
+        for d in pd.date_range(start_date, end_date, freq="B"):
+            ds = d.strftime("%Y%m%d")
+            try:
+                tl = pro.top_list(trade_date=ds)
+                if tl is not None and not tl.empty:
+                    row = tl[tl["ts_code"] == ticker]
+                    if not row.empty:
+                        top_entries.append(row.iloc[0])
+            except Exception:
+                continue
+        if top_entries:
+            sections.append(
+                f"### 龙虎榜 (Top List)\n"
+                f"- 区间上榜次数: {len(top_entries)}\n"
+                f"- 龙虎榜出现 = 机构/游资大幅交易，情绪信号强烈\n"
+                + "\n".join(
+                    f"  {e['trade_date']}: 买卖额 {e.get('amount', 'N/A')}"
+                    for e in top_entries[:5]
+                )
+            )
+    except Exception as e:
+        sections.append(f"### 龙虎榜 (Top List)\n<unavailable: {e}>")
+
+    if not sections:
+        return "<no capital-flow data available>"
+    return "\n\n".join(sections)
+
+
+def _fetch_registry_sentiment(ticker: str, start_date: str, end_date: str) -> str:
+    """Fetch sentiment via the DataSourceRegistry (xueqiu, eastmoney_guba).
+
+    Walks the YAML-configured sentiment chain for the ticker's market.
+    Returns the first successful source's output, or a sentinel if all
+    sources fail (so the caller can fall back to the capital-flow proxy).
+    """
+    try:
+        from tradingagents.dataflows.registry import get_registry
+        from tradingagents.dataflows.ticker_router import route as route_market
+        from tradingagents.dataflows.errors import NoMarketDataError
+
+        reg = get_registry()
+        reg.import_adapters()
+        market = route_market(ticker)
+        return reg.dispatch(
+            "sentiment", market, capability="sentiment",
+            symbol=ticker, start_date=start_date, end_date=end_date,
+        )
+    except Exception as e:
+        return f"<unavailable: sentiment registry fetch failed: {e}>"
 
 
 def create_sentiment_analyst(llm):
@@ -72,12 +196,24 @@ def create_sentiment_analyst(llm):
         # returns a string (no exceptions surface from here), so the LLM
         # always sees something — either real data or a clear placeholder.
         news_block = get_news.func(ticker, start_date, end_date)
-        # Pass the analysis window so a historical run trims social posts to it
-        # instead of leaking today's chatter into a backtest (#1220).
-        stocktwits_block = fetch_stocktwits_messages(
-            ticker, limit=30, start_date=start_date, end_date=end_date
-        )
-        reddit_block = fetch_reddit_posts(ticker, start_date=start_date, end_date=end_date)
+
+        # A-share / HK stocks have no Reddit/StockTwits coverage. Try the
+        # registry sentiment chain (xueqiu, eastmoney_guba) first; fall back
+        # to a tushare capital-flow proxy (资金流/融资融券/龙虎榜) if both fail.
+        is_ashare_or_hk = is_ashare(ticker) or is_hk(ticker)
+        if is_ashare_or_hk:
+            social_block = _fetch_registry_sentiment(ticker, start_date, end_date)
+            capital_flow_block = _fetch_ashare_capital_flow(ticker, start_date, end_date)
+            stocktwits_block = "<unavailable: StockTwits does not cover A-share/HK tickers>"
+            reddit_block = "<unavailable: Reddit does not cover A-share/HK tickers>"
+        else:
+            capital_flow_block = ""
+            # Pass the analysis window so a historical run trims social posts to it
+            # instead of leaking today's chatter into a backtest (#1220).
+            stocktwits_block = fetch_stocktwits_messages(
+                ticker, limit=30, start_date=start_date, end_date=end_date
+            )
+            reddit_block = fetch_reddit_posts(ticker, start_date=start_date, end_date=end_date)
 
         system_message = _build_system_message(
             ticker=ticker,
@@ -86,6 +222,9 @@ def create_sentiment_analyst(llm):
             news_block=news_block,
             stocktwits_block=stocktwits_block,
             reddit_block=reddit_block,
+            capital_flow_block=capital_flow_block,
+            social_block=social_block if is_ashare_or_hk else "",
+            is_ashare_or_hk=is_ashare_or_hk,
         )
 
         prompt = ChatPromptTemplate.from_messages(
@@ -138,8 +277,68 @@ def _build_system_message(
     news_block: str,
     stocktwits_block: str,
     reddit_block: str,
+    capital_flow_block: str = "",
+    social_block: str = "",
+    is_ashare_or_hk: bool = False,
 ) -> str:
     """Assemble the sentiment-analyst system message with structured data blocks."""
+    if is_ashare_or_hk:
+        return f"""You are a financial market sentiment analyst. Your task is to produce a comprehensive sentiment report for {ticker} (A-share/HK stock) covering the period from {start_date} to {end_date}.
+
+Sentiment is derived from three complementary sources: news flow, social discussion (雪球/东方财富股吧), and capital-flow data (资金流向/融资融券/龙虎榜) as a proxy for retail/institutional sentiment.
+
+## Data sources (pre-fetched, in this prompt)
+
+### News headlines — company announcements + research reports + market news
+Institutional framing. Fact-driven, slower-moving signal.
+
+<start_of_news>
+{news_block}
+<end_of_news>
+
+### Social discussion — 雪球 (Xueqiu) / 东方财富股吧 (Eastmoney Guba)
+Retail-investor posts. Titles and bodies reflect retail sentiment directly. If unavailable, the capital-flow proxy below becomes the primary signal.
+
+<start_of_social>
+{social_block}
+<end_of_social>
+
+### Capital-flow sentiment proxy — tushare moneyflow + margin_detail + top_list
+Fast-moving signal. Net money flow reflects retail/institutional buying pressure; margin balance changes reflect leveraged sentiment; top-list (龙虎榜) appearances indicate large institutional/游资 trades.
+
+<start_of_capital_flow>
+{capital_flow_block}
+<end_of_capital_flow>
+
+## How to analyze this data (best practices)
+
+1. **Read the net money-flow direction as the primary sentiment signal.** Sustained net inflow = bullish pressure; sustained net outflow = bearish pressure. The inflow/outflow day ratio indicates consistency.
+
+2. **Margin balance change is a leveraged-sentiment confirm.** Rising 融资余额 (margin balance) = leveraged buyers adding; falling = leveraged buyers reducing. Divergence between money flow and margin direction is itself a signal.
+
+3. **Social post sentiment.** Read 雪球/股吧 post titles and bodies for bullish/bearish framing. Recurring bullish or bearish themes across posts indicate retail consensus.
+
+4. **Top-list (龙虎榜) appearances are high-conviction signals.** A stock appearing on the 龙虎榜 means large players (institutions/游资) traded it heavily.
+
+5. **Cross-source divergence matters.** If news flow is negative but money flow is strongly positive, institutional buying may be front-running a turnaround (or retail chasing while institutions distribute).
+
+6. **Identify recurring narrative themes** in the news and posts — earnings, policy changes, sector rotation, M&A, etc.
+
+7. **Be honest about data limits.** If social posts are unavailable and capital-flow data is thin, flag lower confidence explicitly.
+
+8. **Identify catalysts and risks** — upcoming earnings, policy events, sector trends, lock-up expiries, etc.
+
+9. **Past sentiment is not predictive.** Frame conclusions as signal for the trader to weigh, not a price call.
+
+## Output fields
+
+- **overall_band**: Exactly one of Bullish / Mildly Bullish / Neutral / Mixed / Mildly Bearish / Bearish.
+- **overall_score**: 0 (max bearish) to 10 (max bullish); 5 = neutral.
+- **confidence**: low / medium / high.
+- **narrative**: Source-by-source breakdown, divergences, dominant narrative, catalysts/risks, and a markdown summary table of key sentiment signals.
+
+{get_language_instruction()}"""
+
     return f"""You are a financial market sentiment analyst. Your task is to produce a comprehensive sentiment report for {ticker} covering the period from {start_date} to {end_date}, drawing on three complementary data sources that have already been collected for you.
 
 ## Data sources (pre-fetched, in this prompt)

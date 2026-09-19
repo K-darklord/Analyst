@@ -10,6 +10,57 @@ Breaking changes within the 0.x line are called out explicitly.
      Entries below are dated and labelled [Fork] to distinguish from
      upstream version tags. Upstream releases live below this block. -->
 
+
+## [Fork] — 2026-09-19
+
+### HK market data & financials end-to-end
+
+- **`fork_patches.py`** (new) — monkey-patches `stockstats_utils.load_ohlcv`
+  and `akshare_backend._load_ohlcv_window` so A-share symbols route to tushare
+  and HK symbols route to akshare's Sina `stock_hk_daily`, bypassing the
+  yfinance path that strips leading zeros (`01810.HK` → `1810.HK`) and gets
+  rate-limited. Previously the patch only covered A-share; HK now works.
+- **Tushare HK financials** — `tushare_adapter.py` gained `_fetch_hk_fundamentals`
+  and `_fetch_hk_statement`, calling `pro.hk_income` / `pro.hk_balancesheet` /
+  `pro.hk_cashflow` (港股财报 independent permission, 500元/year). Long-format
+  data (ind_name/ind_value) is pivoted to wide columns matching the A-share
+  output shape. `data_sources.yaml` HK fundamentals chain: tushare(1) → yfinance(2).
+- **`akshare_backend.py`** — `_fetch_ohlcv_range_hk` uses `ak.stock_hk_daily`
+  (Sina) instead of `stock_hk_hist` (eastmoney push2his, WAF-blocked);
+  `strip_suffix` now strips `.HK`; `get_akshare_stock_data` and
+  `get_akshare_stock_stats_indicators_window` route HK symbols to the HK fetcher.
+
+### Sentiment data sources (A-share + HK)
+
+- **`eastmoney_guba_adapter.py`** (new) — scrapes 东方财富股吧 post list
+  (`http://guba.eastmoney.com/list,<code>.html`) via requests + BeautifulSoup.
+  No auth required, ~1s response. `@register_adapter("eastmoney_guba")`,
+  capability `sentiment`.
+- **`xueqiu_adapter.py`** (new) — bypasses Aliyun WAF via `undetected-chromedriver`
+  + user's logged-in Chrome Profile. `@register_adapter("xueqiu")`, capability
+  `sentiment`. Reads `XUEQIU_CHROME_PROFILE` env var.
+- **`sentiment_analyst.py`** — A-share/HK branch fetches registry sentiment
+  (xueqiu → guba fallback) before the capital-flow proxy; social discussion
+  section added to the system prompt.
+- **`data_sources.yaml`** — A_SHARE sentiment: xueqiu(1) → eastmoney_guba(2);
+  HK sentiment: xueqiu(1).
+
+### Dashboard
+
+- **`ticker_names.py`** (new) — resolves ticker → Chinese company name via
+  tushare (A/HK) and yfinance (US), cached at
+  `~/.tradingagents/dashboard/ticker_names.json`. Watchlist shows company
+  name below the ticker and in the summary title.
+- **Data-change highlight fix** — removed duplicate `renderKeySignals()` calls
+  from `index.html` and `print.html` inline `DOMContentLoaded` handlers.
+  `key_signals.js`'s own `bootstrap()` already renders key signals once; the
+  second call found `prev == current` (just stored) and overwrote the
+  strikethrough HTML, hiding the old-value line-through on price changes.
+
+### Misc
+
+- `.gitignore` — uncommented `.idea/` to ignore the full JetBrains config dir.
+
 ## [Fork] — 2026-09-18
 
 K-darklord/TradingAgents fork extensions layered on top of upstream v0.5.0.

@@ -51,6 +51,8 @@ CAPABILITIES = frozenset(
         "news",                   # ticker-scoped news
         "global_news",            # macro / market-wide news
         "insider_transactions",   # insider buys/sells
+        "macro_data",             # macroeconomic indicators (CN: cpi/pmi/shibor; US: FRED)
+        "sentiment",              # social-media / forum sentiment (Reddit, Guba, Xueqiu)
     }
 )
 
@@ -174,6 +176,12 @@ class BaseAdapter(ABC):
     def fetch_insider_transactions(self, symbol: str, **kwargs: Any) -> str:
         return self._not_supported("insider_transactions")
 
+    def fetch_macro_data(self, indicator: str, **kwargs: Any) -> str:
+        return self._not_supported("macro_data")
+
+    def fetch_sentiment(self, symbol: str, **kwargs: Any) -> str:
+        return self._not_supported("sentiment")
+
 
 # Mapping from capability name to the base-class method that serves it.
 # The registry uses this to call the right method without reflective
@@ -188,6 +196,8 @@ CAPABILITY_METHODS: dict[str, str] = {
     "news": "fetch_news",
     "global_news": "fetch_global_news",
     "insider_transactions": "fetch_insider_transactions",
+    "macro_data": "fetch_macro_data",
+    "sentiment": "fetch_sentiment",
 }
 
 
@@ -200,8 +210,9 @@ CATEGORY_CAPABILITIES: dict[str, frozenset[str]] = {
     "fundamentals": frozenset(
         {"fundamentals", "balance_sheet", "cashflow", "income_statement", "insider_transactions"}
     ),
-    "sentiment": frozenset(),   # sentiment adapters ship later (eastmoney_guba, xueqiu, ...)
+    "sentiment": frozenset({"sentiment"}),
     "news": frozenset({"news", "global_news"}),
+    "macro_data": frozenset({"macro_data"}),
 }
 
 

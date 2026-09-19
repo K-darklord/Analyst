@@ -56,9 +56,10 @@ def is_ashare(symbol: str) -> bool:
 
 
 def strip_suffix(symbol: str) -> str:
-    """Strip the exchange suffix: ``"600519.SH"`` -> ``"600519"``.
+    """Strip the exchange suffix: ``"600519.SH"`` -> ``"600519"``, ``"01810.HK"`` -> ``"01810"``.
 
     akshare's A-share endpoints want the bare 6-digit code (no .SH/.SZ).
+    Sina's HK endpoints want the bare numeric code (no .HK).
     """
     if not isinstance(symbol, str):
         return symbol
@@ -66,6 +67,8 @@ def strip_suffix(symbol: str) -> str:
     for suffix in _ASHARE_SUFFIXES:
         if upper.endswith(suffix):
             return symbol[: -len(suffix)]
+    if upper.endswith(".HK"):
+        return symbol[: -len(".HK")]
     return symbol
 
 
@@ -167,25 +170,68 @@ def _fetch_ohlcv_range(symbol: str, start_date: str, end_date_inclusive: str) ->
     return _format_ohlcv_frame(raw)
 
 
+def _fetch_ohlcv_range_hk(symbol: str, start_date: str, end_date_inclusive: str) -> pd.DataFrame:
+    """Fetch and format an inclusive [start, end] range of HK OHLCV via akshare (Sina).
+
+    Uses ``stock_hk_daily`` (Sina source) instead of ``stock_hk_hist``
+    (eastmoney push2his) because the eastmoney push2his endpoint is often
+    blocked by WAF/firewall.  Sina returns all history; we filter by date.
+    """
+    code = strip_suffix(symbol)
+
+    try:
+        raw = ak.stock_hk_daily(symbol=code, adjust="qfq")
+    except Exception as e:
+        raise NoMarketDataError(symbol, code, f"akshare HK OHLCV fetch failed: {e}") from e
+
+    if raw is None or raw.empty:
+        _raise_for_empty_akshare(symbol, code, f"rows between {start_date} and {end_date_inclusive}")
+
+    # stock_hk_daily returns: date, open, high, low, close, volume, amount
+    raw = raw.rename(columns={
+        "date": "Date", "open": "Open", "high": "High",
+        "low": "Low", "close": "Close", "volume": "Volume",
+    })
+    raw["Date"] = pd.to_datetime(raw["Date"], errors="coerce")
+    raw = raw.dropna(subset=["Date"])
+
+    # Filter by date range
+    mask = (raw["Date"] >= pd.Timestamp(start_date)) & (raw["Date"] <= pd.Timestamp(end_date_inclusive))
+    raw = raw.loc[mask].copy()
+
+    if raw.empty:
+        _raise_for_empty_akshare(symbol, code, f"rows between {start_date} and {end_date_inclusive}")
+
+    keep = [c for c in ["Date", "Open", "High", "Low", "Close", "Volume"] if c in raw.columns]
+    raw = raw[keep].reset_index(drop=True)
+    raw["Adj Close"] = raw["Close"]
+    raw = raw.set_index("Date")
+    return raw
+
+
 # ---------------------------------------------------------------------------
 # 1. Daily OHLCV - matches yfinance.get_YFin_data_online
 # ---------------------------------------------------------------------------
 
 def get_akshare_stock_data(
-    symbol: Annotated[str, "ticker symbol of the company, e.g. 600519.SH"],
+    symbol: Annotated[str, "ticker symbol of the company, e.g. 600519.SH, 01810.HK"],
     start_date: Annotated[str, "Start date in yyyy-mm-dd format"],
     end_date: Annotated[str, "End date in yyyy-mm-dd format"],
 ) -> str:
-    """Fetch A-share daily OHLCV via akshare (qfq-adjusted).
+    """Fetch A-share / HK daily OHLCV via akshare (qfq-adjusted).
 
     Returns a header + CSV string in the same shape as
     ``y_finance.get_YFin_data_online``: a ``Date``-indexed frame with
     ``Open/High/Low/Close/Adj Close/Volume`` columns.
     """
+    from .ticker_router import is_hk
     datetime.strptime(start_date, "%Y-%m-%d")
     datetime.strptime(end_date, "%Y-%m-%d")
 
-    data = _fetch_ohlcv_range(symbol, start_date, end_date)
+    if is_hk(symbol):
+        data = _fetch_ohlcv_range_hk(symbol, start_date, end_date)
+    else:
+        data = _fetch_ohlcv_range(symbol, start_date, end_date)
 
     csv_string = data.to_csv()
     header = f"# Stock data for {symbol} from {start_date} to {end_date}\n"
@@ -284,7 +330,11 @@ def _load_ohlcv_window(symbol: str, curr_date: str, years: int = 5) -> pd.DataFr
     start_str = start_dt.strftime("%Y-%m-%d")
     end_str = curr_dt.strftime("%Y-%m-%d")
 
-    data = _fetch_ohlcv_range(symbol, start_str, end_str)
+    from .ticker_router import is_hk
+    if is_hk(symbol):
+        data = _fetch_ohlcv_range_hk(symbol, start_str, end_str)
+    else:
+        data = _fetch_ohlcv_range(symbol, start_str, end_str)
     data = data[data.index <= curr_dt]
     if data.empty:
         _raise_for_empty_akshare(symbol, strip_suffix(symbol), f"OHLCV up to {curr_date}")

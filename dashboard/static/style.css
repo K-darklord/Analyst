@@ -300,6 +300,17 @@ button.btn.primary:disabled {
   color: var(--text-primary);
   letter-spacing: 0.04em;
 }
+.wc-name {
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  letter-spacing: 0.02em;
+  margin-top: 1px;
+  max-width: 120px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .wc-remove {
   border: none;
   background: transparent;
@@ -378,6 +389,12 @@ button.btn.primary:disabled {
   font-weight: 700;
   color: var(--text-primary);
   letter-spacing: 0.05em;
+}
+.ticker-label .ticker-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-tertiary);
+  letter-spacing: 0.02em;
 }
 .rating-display {
   font-size: 14px;
@@ -1194,11 +1211,13 @@ svg.rating-chart {
  * Font-size enlargements (readability pass)
  * ===================================================================== */
 .wc-ticker { font-size: 14px; }
+.wc-name { font-size: 12px; }
 .wc-rating { font-size: 14px; }
 .wc-date { font-size: 12px; }
 .reversal-badge { font-size: 10px; }
 
 .ticker-label { font-size: var(--font-2xl); }
+.ticker-label .ticker-name { font-size: 14px; }
 .rating-display { font-size: 14px; padding: 4px 12px; }
 .badge { font-size: 12px; padding: 5px 12px; }
 .summary .meta { font-size: 12px; }
@@ -1521,6 +1540,27 @@ details.collapse > summary .excerpt { font-size: 12px; }
 .diff-pulse {
   animation: diff-pulse-glow 2s ease-out 4;
   border-radius: 2px;
+}
+
+/* Per-analyst content underline — marks blocks (paragraphs, list items,
+   table cells) whose text was NOT present in the previous snapshot. The
+   underline persists across the session as a "note" of what changed since
+   the user's last visit; it is cleared on the next full reload. */
+.diff-underline {
+  border-bottom: 2px solid var(--accent-amber);
+  background: rgba(255, 170, 0, 0.10);
+  padding-bottom: 1px;
+  border-radius: 2px;
+}
+.diff-underline + .diff-underline {
+  border-top: none;
+}
+/* When a list item is underlined, don't also underline its nested children
+   (avoids double-underline visual noise). */
+li.diff-underline > ul li,
+li.diff-underline > ol li {
+  border-bottom: none;
+  background: transparent;
 }
 
 /* UPDATED badge on section headers */

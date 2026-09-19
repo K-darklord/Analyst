@@ -231,13 +231,160 @@
     storeSnapshot(ticker, current);
   }
 
+  // ---------- per-analyst content diff (underline) ----------
+  // Stores the full text of each analyst field per ticker, then on the
+  // next render underlines blocks (paragraphs / list items / table cells)
+  // whose normalized text was NOT present in the previous snapshot.
+  // Underlines persist until the next reload — they are a "note" of what
+  // changed since the user's last visit, not a transient pulse.
+  var TEXT_SNAP_KEY = 'ta-text-snapshot-';
+
+  function normalizeLine(s) {
+    return String(s || '')
+      // Normalize dates so a header that only changed its date
+      // (分析日期：2026-09-18 vs 2026-09-01) doesn't trigger a false
+      // underline. Both sides get the same <DATE> placeholder.
+      .replace(/\b20\d{2}-\d{2}-\d{2}\b/g, '<DATE>')
+      .replace(/\b20\d{2}\/\d{2}\/\d{2}\b/g, '<DATE>')
+      .replace(/\b\d{4}年\d{1,2}月\d{1,2}日\b/g, '<DATE>')
+      // Strip markdown syntax so source lines match marked.js output
+      // (which has already dropped these markers from textContent):
+      //   list-item prefix  '- foo' / '* foo' / '1. foo'  -> 'foo'
+      //   heading hashes    '## Title'                    -> 'Title'
+      //   bold/italic       '**bold**' / '__bold__'        -> 'bold'
+      //   table cell pipes  '| cell1 | cell2 |'          -> 'cell1 cell2'
+      .replace(/^\s*(?:[-*+]|\d+\.)\s+/, '')
+      .replace(/^\s*#{1,6}\s+/, '')
+      .replace(/\*\*(.+?)\*\*/g, '$1')
+      .replace(/__(.+?)__/g, '$1')
+      .replace(/\*(.+?)\*/g, '$1')
+      .replace(/_(.+?)_/g, '$1')
+      .replace(/\|/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+
+  function buildOldLineSet(text) {
+    if (!text) return null;
+    var set = {};
+    // Add individual lines (matches <li>, <h2>, single-line blocks).
+    var lines = String(text).split(/\r?\n/);
+    for (var i = 0; i < lines.length; i++) {
+      var n = normalizeLine(lines[i]);
+      if (n) set[n] = true;
+    }
+    // Add full paragraphs (matches <p> blocks — marked.js merges a
+    // paragraph's embedded \n into one element, so we need the whole-
+    // paragraph text in the set too, otherwise an unchanged paragraph
+    // is falsely flagged as new because its textContent doesn't match
+    // any individual line).
+    var paras = String(text).split(/\r?\n\r?\n/);
+    for (var j = 0; j < paras.length; j++) {
+      var p = normalizeLine(paras[j]);
+      if (p) set[p] = true;
+    }
+    return set;
+  }
+
+  function storeTextSnapshot(ticker, state) {
+    if (!ticker || !state) return;
+    var snap = {};
+    var fields = ['market_report', 'sentiment_report', 'news_report',
+                  'fundamentals_report', 'trader_investment_decision',
+                  'investment_plan', 'final_trade_decision'];
+    for (var i = 0; i < fields.length; i++) {
+      if (state[fields[i]]) snap[fields[i]] = String(state[fields[i]]);
+    }
+    try {
+      global.localStorage.setItem(TEXT_SNAP_KEY + ticker, JSON.stringify(snap));
+    } catch (e) {}
+  }
+
+  function loadTextSnapshot(ticker) {
+    if (!ticker) return null;
+    try {
+      var raw = global.localStorage.getItem(TEXT_SNAP_KEY + ticker);
+      return raw ? JSON.parse(raw) : null;
+    } catch (e) { return null; }
+  }
+
+  // Map field name -> CSS selector for the rendered .md-body container.
+  // For trader/plan we match by .card-title text (robust against template
+  // reordering).
+  function findMdBodyForField(field) {
+    var analystMap = {
+      market_report: '.analyst-wrap.market',
+      sentiment_report: '.analyst-wrap.sentiment',
+      news_report: '.analyst-wrap.news',
+      fundamentals_report: '.analyst-wrap.fundamentals'
+    };
+    if (analystMap[field]) {
+      var c = document.querySelector(analystMap[field]);
+      return c ? c.querySelector('.md-body') : null;
+    }
+    var titleMap = {
+      trader_investment_decision: 'Trader Decision',
+      investment_plan: 'Investment Plan'
+    };
+    var titles = document.querySelectorAll('.card-title');
+    for (var i = 0; i < titles.length; i++) {
+      if (titles[i].textContent.indexOf(titleMap[field]) !== -1) {
+        var details = titles[i].closest('details');
+        return details ? details.querySelector('.md-body') : null;
+      }
+    }
+    return null;
+  }
+
+  function runContentDiff(state, ticker) {
+    if (!state || !ticker) return;
+    var prev = loadTextSnapshot(ticker);
+
+    var fields = ['market_report', 'sentiment_report', 'news_report',
+                  'fundamentals_report', 'trader_investment_decision',
+                  'investment_plan'];
+
+    for (var fi = 0; fi < fields.length; fi++) {
+      var field = fields[fi];
+      var container = findMdBodyForField(field);
+      if (!container) continue;
+      var oldText = prev ? prev[field] : null;
+      var oldSet = buildOldLineSet(oldText);
+      if (!oldSet) continue; // first visit — no baseline, no underlines
+
+      // Walk rendered block children. Marking at block level (p, li, td, h*,
+      // pre, blockquote) keeps underlines aligned to marked.js output
+      // instead of raw markdown lines.
+      var blocks = container.querySelectorAll('p, li, h1, h2, h3, h4, h5, h6, pre, blockquote, tr');
+      for (var bi = 0; bi < blocks.length; bi++) {
+        var block = blocks[bi];
+        // Skip nested li children (we already underline the parent li).
+        if (block.parentElement && block.parentElement.closest('li') &&
+            block.parentElement.closest('li') !== block) continue;
+        var text = normalizeLine(block.textContent);
+        if (text.length < 4) continue; // skip very short lines / noise
+        if (!oldSet[text]) {
+          block.classList.add('diff-underline');
+        }
+      }
+    }
+
+    // Persist current text as the new baseline for next visit.
+    storeTextSnapshot(ticker, state);
+  }
+
   // ---------- bootstrap ----------
   function bootstrap() {
     var state = global.__SELECTED_STATE__;
     var ticker = global.__SELECTED_TICKER__;
     if (state && ticker) {
       // Small delay so DOM is fully rendered by marked.js
-      setTimeout(function () { runDiff(state, ticker); }, 500);
+      setTimeout(function () {
+        runDiff(state, ticker);
+        // Per-analyst content underline (must run AFTER marked.js so DOM
+        // blocks exist; 500ms delay above covers that).
+        runContentDiff(state, ticker);
+      }, 500);
     }
   }
 
@@ -251,5 +398,6 @@
 
   // Expose for manual trigger after AJAX refresh
   global.runPageDiff = runDiff;
+  global.runContentDiff = runContentDiff;
 
 })((typeof window !== 'undefined' ? window : (typeof globalThis !== 'undefined' ? globalThis : this)));

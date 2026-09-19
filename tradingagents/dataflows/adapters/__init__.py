@@ -11,10 +11,16 @@ below; no edit to registry.py required.
 # akshare / tushare) is deferred to adapter __init__ or first call.
 from . import yfinance_adapter     # noqa: F401
 from . import akshare_adapter      # noqa: F401
-from . import tushare_adapter      # noqa: F401  (Phase 2)
+from . import tushare_adapter      # noqa: F401
+from . import eastmoney_guba_adapter  # noqa: F401
+from . import xueqiu_adapter       # noqa: F401
 
-# Adapters not yet shipped:
-# from . import eastmoney_guba
-# from . import eastmoney_news
+# Adapters not yet shipped (see config/data_sources.yaml roadmap):
+# from . import eastmoney_news_adapter   # A-share news
+# from . import cls_cn_adapter           # A-share real-time news (财联社)
+# from . import aastocks_adapter         # HK news
 
-__all__ = ["yfinance_adapter", "akshare_adapter"]
+__all__ = [
+    "yfinance_adapter", "akshare_adapter", "tushare_adapter",
+    "eastmoney_guba_adapter", "xueqiu_adapter",
+]
