@@ -227,6 +227,75 @@ FundTeam (主项目)
 3. **adapter 插件化** — 现有 `@register_adapter` 已是插件式，未来只需把 adapter 文件移到 FundTeam
 4. **减少 fork_patches 的 monkey-patch** — 长期应将 load_ohlcv 重构为通过 registry 分发
 
+---
+
+## 七、Strategist 技术方案：ORCA + omd_finance 组合
+
+> **定位**：ORCA 做中期趋势方向预测，omd_finance 做极端风险结构预警，
+> 两者组合形成"方向 + 尾部风险"双信号，作为 Analyst 个股信号的 regime override。
+
+### 7.1 技术选型
+
+| 组件 | 项目 | 作用 | 业绩/能力 |
+|---|---|---|---|
+| **趋势预测** | [ORCA](https://arxiv.org/html/2604.17251) | 10 天 horizon rally/crash 概率 → 5 体制 | Sharpe 1.13, CAGR 15.6%, MaxDD -7.5% |
+| **尾部预警** | [omd_finance](https://github.com/ighalp/omd_finance) | 相关矩阵谱坍塌检测，危机前兆 | 2008 内生危机可提前预警 |
+
+**为什么选这两个**：
+- ORCA 是唯一有完整回测业绩的体制检测项目，且用 RMT + 谱图论特征
+- omd_finance 专注"相关结构坍塌"这个危机前兆信号，与 ORCA 的趋势预测互补
+- 两者结合可识别"背离"场景（趋势看涨但结构坍塌 = 顶部背离）
+
+### 7.2 信号组合矩阵
+
+| ORCA 趋势 | omd 结构 | 综合判断 | 仓位动作 |
+|---|---|---|---|
+| Rally | 稳定 | 健康上涨 | 顺势加仓 |
+| Rally | 坍塌 | **假涨/顶部背离** | 减仓/止盈 |
+| Crash | 稳定 | 正常回调 | 小幅减仓 |
+| Crash | 坍塌 | **系统性危机** | 清仓/对冲 |
+| Neutral | 稳定 | 震荡 | 听 Analyst |
+| Neutral | 坍塌 | **结构断裂前兆** | 降低风险敞口 |
+
+**核心价值**：两个"背离"场景——
+- ORCA 涨 + omd 塌 = 危机前最后逃顶机会（2008 模式）
+- ORCA 跌 + omd 稳 = 技术性回调，不必恐慌
+
+### 7.3 Strategist 输出结构
+
+```json
+{
+  "horizon": "1M",
+  "trend": {
+    "rally_prob": 0.72,
+    "crash_prob": 0.08,
+    "regime": "rally"
+  },
+  "tail_risk": {
+    "spectral_collapse_score": 0.15,
+    "state": "stable"
+  },
+  "combined_signal": "bullish",
+  "sector_forecasts": {
+    "semiconductors": {"direction": "up", "confidence": 0.65}
+  }
+}
+```
+
+### 7.4 实施注意事项
+
+1. **时间尺度适配**：ORCA 原 horizon 为 10 天，Strategist 需要 1-3 个月。
+   方案：延长预测 horizon 重新训练，或将 10 天信号做滚动聚合
+   （连续 N 天 rally_prob > 0.6 → 中期趋势确立）
+2. **omd_finance 封装**：原项目是研究框架，需将谱坍塌检测封装为可调用接口
+3. **数据需求**：
+   - ORCA：24 个 ETF 日收益（美股现成；A 股需对应宽基/行业 ETF）
+   - omd：全市场截面（S&P 500 或沪深 300 成分股）
+4. **A 股适配**：两项目均基于美股，A 股涨跌停限制会扭曲相关性，需重新校准阈值
+5. **可复用工具库**：
+   - `scikit-rmt` — RMT 实现（Marchenko-Pastur、MP-PCA 去噪）
+   - `cpz-quant` — 协方差去噪、组合优化
+
 ## 五、技术债务
 
 1. **fork_patches.py 的 monkey-patch** — 虽然有效但属于运行时 hack，长期应将 load_ohlcv 重构为通过 registry 分发
