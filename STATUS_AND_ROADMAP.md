@@ -257,6 +257,12 @@ FundTeam (主项目)
 
 ## 七、Strategist 技术方案：ORCA + omd_finance 组合
 
+> **⚠️ 代码位置变更**：Strategist 组件已迁移至独立的 FundTeam 项目
+> (`/Users/kevin/PycharmProjects/FundTeam/strategist/`)。
+> TradingAgents 专注于 Analyst（个股深度分析），FundTeam 拥有
+> Strategist / Manager / Researcher / Backtester / Dashboard。
+> 详见第六章架构分离说明。
+
 > **定位**：ORCA 做中期趋势方向预测，omd_finance 做极端风险结构预警，
 > 两者组合形成"方向 + 尾部风险"双信号，作为 Analyst 个股信号的 regime override。
 
