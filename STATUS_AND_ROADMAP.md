@@ -150,13 +150,39 @@ US:       market_data=yfinance(1)   fundamentals=yfinance(1)   news=yfinance(1)
 > **核心理念**：TradingAgents 专注个股深度分析（Analyst），保持上游纯净以便 merge；
 > FundTeam 承担数据层、Strategist、Manager、Dashboard，通过信号合并做最终决策。
 
-### 6.1 角色定位
+### 6.1 五组件架构
 
-| 角色 | 职责 | 决策风格 | 所属 |
+```
+                    ┌──────────────┐
+                    │  Backtester  │  ← 复盘所有执行策略的真实业绩
+                    └──────┬───────┘     输出各 agent 决策有效性反馈
+                           │ feedback
+                           ▼
+┌─────────────────────────────────────────────────────┐
+│                    Manager                           │
+│              (仓位管理 + 执行)                        │
+└──────┬───────────┬───────────┬───────────────────────┘
+       │           │           │
+┌──────▼────┐ ┌────▼────┐ ┌───▼─────┐
+│Researcher │ │Strategist│ │ Analyst │
+│(技术成熟度)│ │(市场体制) │ │(个股深度) │
+└───────────┘ └─────────┘ └─────────┘
+```
+
+| 组件 | 职责 | 决策风格 | 所属 |
 |---|---|---|---|
-| **Analyst** | 个股深度判断（财报/新闻/情绪/技术面） | 主观 + 信息驱动，偏短期 | TradingAgents |
-| **Strategist** | 数据结构异常检测（RMT/相关矩阵/板块结构） | 纯数据驱动，偏中长期 | FundTeam |
-| **Manager** | 结合两者信号做仓位管理 | 信号合并后执行 | FundTeam |
+| **Researcher** | 读论文 + 关键公司新闻（李飞飞机器人公司、Tesla Optimus 等），判断技术成熟度和量产规划 | 产业研究驱动 | FundTeam |
+| **Strategist** | ORCA 趋势 + omd_finance 尾部风险 + 牛市确认，判断市场 regime | 纯数据驱动，中长期 | FundTeam |
+| **Analyst** | 个股深度判断（财报/新闻/情绪/技术面），index enhancement | 主观 + 信息驱动，短期 | TradingAgents |
+| **Manager** | 合并 Researcher/Strategist/Analyst 三者信号，做仓位分配和执行 | 信号合并后执行 | FundTeam |
+| **Backtester** | 追踪所有执行策略的真实复盘，反馈各 agent 决策有效性，动态调整信号权重 | 业绩归因 + 闭环学习 | FundTeam |
+
+**核心交易逻辑**：
+1. **主题**：AI + 机器人是未来 5-10 年大方向（Researcher 判断）
+2. **入场**：机器人渗透率达 5% 或技术商业化验证通过 → 重仓入场（Researcher 信号）
+3. **仓位**：Strategist 判断市场 regime（ORCA 趋势 + omd 尾部风险 + 牛市确认）→ 决定仓位系数
+4. **选股**：Analyst 在 AI/机器人主题池内做 index enhancement，决定超配/低配/剔除
+5. **复盘**：Backtester 追踪真实业绩，反馈各 agent 决策有效性，形成闭环
 
 ### 6.2 双信号共识机制
 
