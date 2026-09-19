@@ -143,6 +143,90 @@ US:       market_data=yfinance(1)   fundamentals=yfinance(1)   news=yfinance(1)
 
 ---
 
+---
+
+## 六、未来架构：FundTeam 与 TradingAgents 分离
+
+> **核心理念**：TradingAgents 专注个股深度分析（Analyst），保持上游纯净以便 merge；
+> FundTeam 承担数据层、Strategist、Manager、Dashboard，通过信号合并做最终决策。
+
+### 6.1 角色定位
+
+| 角色 | 职责 | 决策风格 | 所属 |
+|---|---|---|---|
+| **Analyst** | 个股深度判断（财报/新闻/情绪/技术面） | 主观 + 信息驱动，偏短期 | TradingAgents |
+| **Strategist** | 数据结构异常检测（RMT/相关矩阵/板块结构） | 纯数据驱动，偏中长期 | FundTeam |
+| **Manager** | 结合两者信号做仓位管理 | 信号合并后执行 | FundTeam |
+
+### 6.2 双信号共识机制
+
+```
+Analyst 信号 (主观/个股)         Strategist 信号 (数据/结构)
+    │                                │
+    ├─ 个股 rating (Buy/Hold/Sell)   ├─ 市场压力指数 (λ_max/MP)
+    ├─ ENTRY/TARGET/STOP LOSS        ├─ 板块轮动方向
+    ├─ 正负要点                      └─ 牛熊状态 (趋势/震荡/危机)
+    │                                │
+    └────────────┬───────────────────┘
+                 ▼
+        ┌──────────────────┐
+        │   Manager 仲裁    │
+        │                  │
+        │  信号共识 → 执行  │
+        │  信号冲突 → 标记  │
+        └──────────────────┘
+```
+
+**执行原则**：Analyst 和 Strategist 信号**方向一致时才执行**；冲突时标记为 REVIEW，人工审核或降低仓位。
+
+### 6.3 模块迁移规划
+
+#### 留在 TradingAgents（纯 Analyst，保持上游可 merge）
+
+- `agents/` — 全部分析 agent（market/sentiment/news/fundamentals）
+- `graph/` — 多 agent 编排
+- `prompts/` — 分析框架
+- `dataflows/interface.py` — 数据工具抽象接口定义
+- `dataflows/base_adapter.py` — 适配器抽象类（plugin contract）
+
+#### 迁移到 FundTeam
+
+| 模块 | 迁移动机 |
+|---|---|
+| `dashboard/` | 可视化属于 FundTeam 展示层 |
+| `dataflows/adapters/` (tushare, akshare, xueqiu, guba) | 中国市场数据源，非通用能力 |
+| `dataflows/registry.py`, `ticker_router.py`, `normalizer.py` | 数据源路由层 |
+| `dataflows/fork_patches.py` | 数据源路由 hack，应在 FundTeam 层解决 |
+| `config/data_sources.yaml` | 数据源配置 |
+
+#### 灰色地带
+
+- `dataflows/interface.py` 的 FORK EXTENSION 委托块：当前是改上游文件；
+  未来应改为 **FundTeam 外部注入数据实现**，TradingAgents 只定义接口。
+- `dataflows/base_adapter.py`：纯抽象类可留在 TradingAgents 作为 plugin contract。
+
+### 6.4 理想依赖关系
+
+```
+FundTeam (主项目)
+  ├── tradingagents  (pip install / submodule，不改源码)
+  │     └── 暴露：agent graph + 数据接口定义 (BaseAdapter)
+  ├── data_layer/    (tushare, akshare, xueqiu, guba 适配器，注入到 tradingagents)
+  ├── strategist/    (RMT, 板块轮动, 牛熊识别 — 纯数据驱动)
+  ├── manager/       (仓位管理，合并 analyst + strategist 信号)
+  └── dashboard/     (可视化)
+```
+
+**关键机制**：TradingAgents 的 `route_to_vendor` 应支持**外部注入数据源**，
+而非内部硬编码 vendor chain。FundTeam 注册中国数据源，TradingAgents 保持通用。
+
+### 6.5 当前可做的准备
+
+1. **减少对 `interface.py` 的修改** — 当前 registry 委托已是最小改动，符合方向
+2. **dashboard 通过 API 调用 TradingAgents** — 不深入改 agent 内部
+3. **adapter 插件化** — 现有 `@register_adapter` 已是插件式，未来只需把 adapter 文件移到 FundTeam
+4. **减少 fork_patches 的 monkey-patch** — 长期应将 load_ohlcv 重构为通过 registry 分发
+
 ## 五、技术债务
 
 1. **fork_patches.py 的 monkey-patch** — 虽然有效但属于运行时 hack，长期应将 load_ohlcv 重构为通过 registry 分发
