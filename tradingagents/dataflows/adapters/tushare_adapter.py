@@ -51,7 +51,7 @@ from ..base_adapter import BaseAdapter
 from ..errors import NoMarketDataError, VendorNotConfiguredError, VendorRateLimitError
 from ..normalizer import to_ohlcv_csv, to_statement_markdown
 from ..registry import register_adapter
-from ..ticker_router import is_ashare, is_hk, strip_suffix
+from ..ticker_router import is_ashare, is_hk, is_us, strip_suffix
 
 logger = logging.getLogger(__name__)
 
@@ -213,8 +213,15 @@ class TushareAdapter(BaseAdapter):
         **kwargs: Any,
     ) -> str:
         pro = self._get_pro()
-        ts_code = _hk_ts_code(symbol) if is_hk(symbol) else symbol
-        api = "hk_daily" if is_hk(symbol) else "daily"
+        if is_hk(symbol):
+            ts_code = _hk_ts_code(symbol)
+            api = "hk_daily"
+        elif is_us(symbol):
+            ts_code = symbol  # US codes are already in tushare format (e.g. AAPL)
+            api = "us_daily"
+        else:
+            ts_code = symbol
+            api = "daily"
         try:
             df = pro.query(
                 api,
@@ -246,9 +253,11 @@ class TushareAdapter(BaseAdapter):
         # of PE/PB/market cap.
         if is_hk(symbol):
             return self._fetch_hk_fundamentals(symbol, **kwargs)
+        if is_us(symbol):
+            return self._fetch_us_fundamentals(symbol, **kwargs)
 
         pro = self._get_pro()
-        ts_code = _hk_ts_code(symbol) if is_hk(symbol) else symbol
+        ts_code = symbol
 
         # Company profile from stock_basic (A-share) / hk_basic (HK)
         try:
@@ -315,6 +324,10 @@ class TushareAdapter(BaseAdapter):
             return self._fetch_hk_statement(
                 symbol, "hk_balancesheet", "Balance Sheet", **kwargs,
             )
+        if is_us(symbol):
+            # Tushare has no raw US balance sheet endpoint; us_fina_indicator
+            # only provides computed ratios. Fall back to yfinance/xfinance.
+            raise NoMarketDataError(symbol, symbol, "tushare has no US balance sheet endpoint")
         return self._fetch_statement(symbol, "balancesheet", "Balance Sheet", **kwargs)
 
     def fetch_cashflow(self, symbol: str, **kwargs: Any) -> str:
@@ -323,6 +336,8 @@ class TushareAdapter(BaseAdapter):
             return self._fetch_hk_statement(
                 symbol, "hk_cashflow", "Cash Flow", **kwargs,
             )
+        if is_us(symbol):
+            raise NoMarketDataError(symbol, symbol, "tushare has no US cashflow endpoint")
         return self._fetch_statement(symbol, "cashflow", "Cash Flow", **kwargs)
 
     def fetch_income_statement(self, symbol: str, **kwargs: Any) -> str:
@@ -331,6 +346,8 @@ class TushareAdapter(BaseAdapter):
             return self._fetch_hk_statement(
                 symbol, "hk_income", "Income Statement", **kwargs,
             )
+        if is_us(symbol):
+            raise NoMarketDataError(symbol, symbol, "tushare has no US income statement endpoint")
         return self._fetch_statement(symbol, "income", "Income Statement", **kwargs)
 
     def _fetch_statement(self, symbol: str, api_name: str, label: str, **kwargs: Any) -> str:
@@ -384,6 +401,67 @@ class TushareAdapter(BaseAdapter):
     # fundamentals path returns company info (hk_basic) + the latest
     # income statement figures (hk_income) instead of PE/PB/market cap.
     # ------------------------------------------------------------------
+    # ------------------------------------------------------------------
+    # US fundamentals — uses pro.us_fina_indicator (quarterly financial
+    # indicators: revenue, profit, ROE, margins, etc.).
+    # us_fina_indicator covers major US stocks + ADRs. Small caps may be
+    # missing; in that case NoMarketDataError lets the registry fall back
+    # to yfinance/xfinance.
+    # ------------------------------------------------------------------
+    def _fetch_us_fundamentals(self, symbol: str, **kwargs: Any) -> str:
+        """Fetch US fundamentals from tushare us_fina_indicator."""
+        pro = self._get_pro()
+        ts_code = symbol
+        try:
+            df = pro.us_fina_indicator(ts_code=ts_code)
+        except Exception as e:
+            msg = str(e)
+            if "频率超限" in msg:
+                raise VendorRateLimitError(f"tushare us_fina_indicator rate-limited: {msg}") from e
+            raise NoMarketDataError(symbol, ts_code, f"tushare us_fina_indicator failed: {msg}") from e
+        if df is None or df.empty:
+            raise NoMarketDataError(symbol, ts_code, "no US fundamentals returned")
+
+        # Latest quarter
+        row = df.iloc[0]
+        field_map = [
+            ("Name", "security_name_abbr"),
+            ("Report Period", "end_date"),
+            ("Accounting Standards", "accounting_standards"),
+            ("Currency", "currency"),
+            ("Revenue", "operate_income"),
+            ("Revenue YoY %", "operate_income_yoy"),
+            ("Gross Profit", "gross_profit"),
+            ("Gross Profit YoY %", "gross_profit_yoy"),
+            ("Net Income (parent)", "parent_holder_netprofit"),
+            ("Net Income YoY %", "parent_holder_netprofit_yoy"),
+            ("Basic EPS", "basic_eps"),
+            ("Diluted EPS", "diluted_eps"),
+            ("Gross Margin %", "gross_profit_ratio"),
+            ("Net Margin %", "net_profit_ratio"),
+            ("ROE %", "roe_avg"),
+            ("ROA %", "roa"),
+            ("Current Ratio", "current_ratio"),
+            ("Debt/Asset Ratio %", "debt_asset_ratio"),
+            ("Asset Turnover", "total_assets_tr"),
+        ]
+        lines = []
+        for label, key in field_map:
+            if key in df.columns and pd.notna(row.get(key)):
+                val = row[key]
+                if isinstance(val, float):
+                    lines.append(f"{label}: {val:,.4f}")
+                else:
+                    lines.append(f"{label}: {val}")
+
+        if not lines:
+            raise NoMarketDataError(symbol, ts_code, "no US fundamental fields populated")
+
+        header = f"# Company Fundamentals for {symbol}\n"
+        header += f"# Data retrieved on: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
+        header += "# Source: tushare us_fina_indicator\n\n"
+        return header + "\n".join(lines)
+
     def _fetch_hk_fundamentals(self, symbol: str, **kwargs: Any) -> str:
         """Fetch HK fundamentals from tushare.
 

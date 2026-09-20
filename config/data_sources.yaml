@@ -111,14 +111,17 @@
 
 market_data:
   US:
-    - source: yfinance
+    - source: tushare
       priority: 1
-      enabled: true
-    - source: xfinance
+      enabled: true                 # us_daily (stable, 500 req/min, no rate limits)
+    - source: yfinance
       priority: 2
+      enabled: true                 # fallback
+    - source: xfinance
+      priority: 3
       enabled: true                 # Yahoo + Stooq/SEC failover, 5-min cache
     - source: alpha_vantage
-      priority: 3
+      priority: 4
       enabled: false
   A_SHARE:
     - source: tushare
@@ -140,17 +143,20 @@ market_data:
 
 fundamentals:
   US:
-    - source: yfinance
+    - source: tushare
       priority: 1
-      enabled: true
-    - source: xfinance
+      enabled: true                 # us_fina_indicator (major US + ADRs)
+    - source: yfinance
       priority: 2
-      enabled: true                 # Yahoo + SEC EDGAR failover for financials
-    - source: alpha_vantage
+      enabled: true                 # fallback (raw statements via SEC)
+    - source: xfinance
       priority: 3
+      enabled: true                 # Yahoo + SEC EDGAR failover
+    - source: alpha_vantage
+      priority: 4
       enabled: false
     - source: sec_edgar
-      priority: 4
+      priority: 5
       enabled: false
   A_SHARE:
     - source: tushare
