@@ -1,12 +1,12 @@
-# Fork Changes — K-darklord/TradingAgents
+# Fork Changes — K-darklord/Analyst
 
 This file is the **fork-vs-upstream change ledger**. It lists every file this
-fork adds or modifies relative to `TauricResearch/TradingAgents` upstream,
+fork adds or modifies relative to `TauricResearch/Analyst` upstream,
 explains the architectural separation that keeps merges tractable, and gives
 the merge recipe for pulling in future upstream releases.
 
-Upstream remote: `origin` → `https://github.com/TauricResearch/TradingAgents.git`
-Fork remote:     `myfork` → `https://github.com/K-darklord/TradingAgents.git`
+Upstream remote: `origin` → `https://github.com/TauricResearch/Analyst.git`
+Fork remote:     `myfork` → `https://github.com/K-darklord/Analyst.git`
 Base tag:        `v0.5.0` (merged via PR #1364)
 
 ---
@@ -175,7 +175,7 @@ git merge origin/main --no-ff
 #    Resolve each by keeping both sides per the per-file notes above.
 
 # 5. After resolving, verify the registry delegation still works:
-cd /path/to/TradingAgents
+cd /path/to/Analyst
 /opt/anaconda3/envs/fundteam/bin/python -c "
 from tradingagents.dataflows.interface import route_to_vendor, REGISTRY_METHOD_MAP
 print('REGISTRY_METHOD_MAP keys:', sorted(REGISTRY_METHOD_MAP.keys()))

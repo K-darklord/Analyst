@@ -27,7 +27,7 @@ from .symbol_utils import crypto_base
 logger = logging.getLogger(__name__)
 
 _API = "https://api.stocktwits.com/api/2/streams/symbol/{ticker}.json"
-_UA = "tradingagents/0.2 (+https://github.com/TauricResearch/TradingAgents)"
+_UA = "tradingagents/0.2 (+https://github.com/TauricResearch/Analyst)"
 
 
 def _created_at(message) -> datetime | None:

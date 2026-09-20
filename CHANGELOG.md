@@ -1,12 +1,12 @@
 # Changelog
 
-All notable changes to TradingAgents are documented here.
+All notable changes to Analyst are documented here.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project follows [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 Breaking changes within the 0.x line are called out explicitly.
 
-<!-- FORK SECTION START — K-darklord/TradingAgents fork changes.
+<!-- FORK SECTION START — K-darklord/Analyst fork changes.
      Entries below are dated and labelled [Fork] to distinguish from
      upstream version tags. Upstream releases live below this block. -->
 
@@ -63,7 +63,7 @@ Breaking changes within the 0.x line are called out explicitly.
 
 ## [Fork] — 2026-09-18
 
-K-darklord/TradingAgents fork extensions layered on top of upstream v0.5.0.
+K-darklord/Analyst fork extensions layered on top of upstream v0.5.0.
 File-by-file change ledger and merge recipe: [FORK_CHANGES.md](FORK_CHANGES.md).
 
 ### Phase 1 — Data source / execution layer separation
@@ -681,16 +681,16 @@ PRs from late 2025 also landed here.
 
 ### Added
 
-- **Initial public release** of the TradingAgents multi-agent trading
+- **Initial public release** of the Analyst multi-agent trading
   framework: market / sentiment / news / fundamentals analysts; bull and bear
   researchers; trader; aggressive, conservative, and neutral risk debaters;
   portfolio manager. LangGraph orchestration, yfinance data, per-agent
   BM25 memory, single-provider OpenAI integration, interactive CLI.
 
-[0.2.4]: https://github.com/TauricResearch/TradingAgents/compare/v0.2.3...v0.2.4
-[0.2.3]: https://github.com/TauricResearch/TradingAgents/compare/v0.2.2...v0.2.3
-[0.2.2]: https://github.com/TauricResearch/TradingAgents/compare/v0.2.1...v0.2.2
-[0.2.1]: https://github.com/TauricResearch/TradingAgents/compare/v0.2.0...v0.2.1
-[0.2.0]: https://github.com/TauricResearch/TradingAgents/compare/v0.1.1...v0.2.0
-[0.1.1]: https://github.com/TauricResearch/TradingAgents/compare/v0.1.0...v0.1.1
-[0.1.0]: https://github.com/TauricResearch/TradingAgents/releases/tag/v0.1.0
+[0.2.4]: https://github.com/TauricResearch/Analyst/compare/v0.2.3...v0.2.4
+[0.2.3]: https://github.com/TauricResearch/Analyst/compare/v0.2.2...v0.2.3
+[0.2.2]: https://github.com/TauricResearch/Analyst/compare/v0.2.1...v0.2.2
+[0.2.1]: https://github.com/TauricResearch/Analyst/compare/v0.2.0...v0.2.1
+[0.2.0]: https://github.com/TauricResearch/Analyst/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/TauricResearch/Analyst/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/TauricResearch/Analyst/releases/tag/v0.1.0

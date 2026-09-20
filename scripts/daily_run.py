@@ -3,16 +3,16 @@
 
 Run from the project root in the ``fundteam`` conda env::
 
-    /opt/anaconda3/envs/fundteam/bin/python /Users/kevin/PycharmProjects/TradingAgents/scripts/daily_run.py
+    /opt/anaconda3/envs/fundteam/bin/python /Users/kevin/PycharmProjects/Fund/Analyst/scripts/daily_run.py
 
 A recommended crontab entry (weekdays 09:00 Asia/Shanghai)::
 
     0 9 * * 1-5 /opt/anaconda3/envs/fundteam/bin/python \\
-        /Users/kevin/PycharmProjects/TradingAgents/scripts/daily_run.py \\
+        /Users/kevin/PycharmProjects/Fund/Analyst/scripts/daily_run.py \\
         >> ~/.tradingagents/dashboard/cron.log 2>&1
 """
 import sys
-sys.path.insert(0, '/Users/kevin/PycharmProjects/TradingAgents')
+sys.path.insert(0, '/Users/kevin/PycharmProjects/Fund/Analyst')
 
 from dashboard.runner import run_analysis
 from dashboard.state_reader import load_watchlist, get_today_str

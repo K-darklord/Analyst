@@ -16,6 +16,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_language_instruction,
     get_portfolio_context_from_state,
 )
+from tradingagents.agents.utils.decision_log_hook import log_analyst_decision
 from tradingagents.agents.utils.structured import (
     NO_EXTERNAL_TOOLS,
     bind_structured,
@@ -98,6 +99,13 @@ Write these sections, in this order, starting with the rating on its own line:
             "current_neutral_response": risk_debate_state["current_neutral_response"],
             "count": risk_debate_state["count"],
         }
+
+        # FORK EXTENSION — log this final decision to FundTeam for outcome backtesting.
+        try:
+            log_analyst_decision(state, final_trade_decision)
+        except Exception as _e:
+            import sys as _sys
+            print(f"[portfolio_manager] decision log failed (non-fatal): {_e}", file=_sys.stderr)
 
         return {
             "risk_debate_state": new_risk_debate_state,

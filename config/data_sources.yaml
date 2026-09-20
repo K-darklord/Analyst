@@ -1,4 +1,4 @@
-# TradingAgents data source configuration.
+# Analyst data source configuration.
 #
 # This file is the single source of truth for which data sources are enabled
 # for each market and data category. The runtime DataSourceRegistry reads it
@@ -208,7 +208,7 @@ sentiment:
   A_SHARE:
     - source: xueqiu
       priority: 1
-      enabled: true                 # needs XUEQIU_CHROME_PROFILE env var
+      enabled: false                # headless-Chrome scrape hangs in CI; fall through to guba/proxy
     - source: eastmoney_guba
       priority: 2
       enabled: true                 # public, no auth
@@ -218,7 +218,7 @@ sentiment:
   HK:
     - source: xueqiu
       priority: 1
-      enabled: true                 # needs XUEQIU_CHROME_PROFILE env var
+      enabled: false                # headless-Chrome scrape hangs in CI; fall through to capital-flow proxy
     - source: eastmoney_guba
       priority: 2
       enabled: false                # guba covers A-share only; HK limited

@@ -4,7 +4,7 @@ registry-configured vendors (tushare / akshare) instead of yfinance.
 The upstream ``stockstats_utils.load_ohlcv`` calls ``yf.download()``
 directly, bypassing the DataSourceRegistry. For A-share symbols (.SH/.SZ/.BJ)
 yfinance converts the suffix to .SS/.SZ and frequently gets rate-limited,
-causing the entire TradingAgents pipeline to fail even when tushare is
+causing the entire Analyst pipeline to fail even when tushare is
 available. For HK symbols (.HK), the upstream ``normalize_symbol`` strips
 leading zeros (``01810.HK`` -> ``1810.HK``) and yfinance frequently
 returns 429 rate-limited -- the pipeline fails even when akshare's

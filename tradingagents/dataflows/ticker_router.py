@@ -50,7 +50,7 @@ def route(symbol: str) -> Market:
 
     Unknown / non-matching symbols default to ``US``. This preserves
     backwards compatibility for tickers that have no exchange suffix
-    (the historical default in TradingAgents) and for forex / crypto /
+    (the historical default in Analyst) and for forex / crypto /
     futures symbols that route through yfinance.
     """
     if not isinstance(symbol, str) or not symbol:

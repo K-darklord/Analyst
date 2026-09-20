@@ -7,6 +7,7 @@ from tradingagents.agents.utils.agent_utils import (
     get_instrument_context_from_state,
     get_language_instruction,
 )
+from tradingagents.agents.utils.decision_log_hook import log_researcher_decision
 from tradingagents.agents.utils.structured import (
     NO_EXTERNAL_TOOLS,
     bind_structured,
@@ -69,6 +70,13 @@ Write these sections, in this order, starting with the recommendation on its own
             "current_response": investment_plan,
             "count": investment_debate_state["count"],
         }
+
+        # FORK EXTENSION — log this investment plan to FundTeam for outcome backtesting.
+        try:
+            log_researcher_decision(state, investment_plan)
+        except Exception as _e:
+            import sys as _sys
+            print(f"[research_manager] decision log failed (non-fatal): {_e}", file=_sys.stderr)
 
         return {
             "investment_debate_state": new_investment_debate_state,

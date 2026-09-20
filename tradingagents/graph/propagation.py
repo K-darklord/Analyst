@@ -1,4 +1,4 @@
-# TradingAgents/graph/propagation.py
+# Analyst/graph/propagation.py
 
 from typing import Any
 
