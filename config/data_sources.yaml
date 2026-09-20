@@ -32,18 +32,18 @@
 #
 #   Category              | US        | A_SHARE   | HK        | A-share gap
 #   ----------------------+-----------+-----------+-----------+------------------
-#   market_data (OHLCV)   | ✅ yf     | ✅ ts+aks | ✅ ts+yf  | —
+#   market_data (OHLCV)   | ✅ yf+xf  | ✅ ts+aks | ✅ ts+yf  | —
 #   technical_indicators  | ✅ yf     | ✅ aks    | ✅ yf     | —
-#   fundamentals         | ✅ yf     | ✅ ts+aks | ✅ ts+yf  | —
+#   fundamentals         | ✅ yf+xf  | ✅ ts+aks | ✅ ts+yf  | —
 #   balance/cashflow/in   | ✅ yf     | ✅ ts+aks | ✅ ts+yf  | —
-#   news                  | ✅ yf     | ✅ ts     | ✅ ts     | —
+#   news                  | ✅ yf+xf  | ✅ ts     | ✅ ts     | —
 #   global_news           | ✅ yf     | ✅ ts(fb) | ✅ ts     | —
 #   insider_transactions  | ✅ yf     | ✅ ts     | ✅ ts     | —
 #   macro_indicators      | ✅ FRED   | ✅ ts     | ✅ ts     | — (CN macro via tushare)
 #   prediction_markets    | ✅ poly   | ❌ poly   | ❌ poly   | no CN prediction mkt
 #   sentiment (social)    | r/st      | xq+gb+px | xq+px    | xueqiu(eastmoney_guba fallback) + capital-flow proxy
 #
-# Shipped adapters: yfinance, akshare, tushare, eastmoney_guba, xueqiu
+# Shipped adapters: yfinance, xfinance, akshare, tushare, eastmoney_guba, xueqiu
 # Planned adapters:    eastmoney_news, cls_cn, aastocks
 #
 # ----------------------------------------------------------------------------
@@ -114,8 +114,11 @@ market_data:
     - source: yfinance
       priority: 1
       enabled: true
-    - source: alpha_vantage
+    - source: xfinance
       priority: 2
+      enabled: true                 # Yahoo + Stooq/SEC failover, 5-min cache
+    - source: alpha_vantage
+      priority: 3
       enabled: false
   A_SHARE:
     - source: tushare
@@ -140,11 +143,14 @@ fundamentals:
     - source: yfinance
       priority: 1
       enabled: true
-    - source: alpha_vantage
+    - source: xfinance
       priority: 2
+      enabled: true                 # Yahoo + SEC EDGAR failover for financials
+    - source: alpha_vantage
+      priority: 3
       enabled: false
     - source: sec_edgar
-      priority: 3
+      priority: 4
       enabled: false
   A_SHARE:
     - source: tushare
@@ -216,6 +222,9 @@ news:
     - source: yfinance
       priority: 1
       enabled: true
+    - source: xfinance
+      priority: 2
+      enabled: true                 # Yahoo news via multi-source router
     # NOTE: tushare returns A-share news, NOT US news. Kept here as
     # disabled so the config is self-documenting; re-enable only if a
     # US-specific tushare feed exists.

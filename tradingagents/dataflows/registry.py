@@ -69,11 +69,23 @@ logger = logging.getLogger(__name__)
 # that suggests trying the next one might succeed. Other errors (bugs,
 # programming mistakes, schema mismatches) propagate so they surface
 # loudly rather than being silently retried on a different source.
-_CHAIN_WALKABLE_ERRORS = (
-    NoMarketDataError,
-    VendorRateLimitError,
-    VendorNotConfiguredError,
-)
+def _build_chain_walkable_errors() -> tuple:
+    """Build the tuple of errors that trigger source-chain walking.
+
+    Includes the registry's own error types plus vendor-specific rate-limit
+    errors (yfinance's YFRateLimitError) so a rate-limited primary source
+    falls through to the next adapter in the chain.
+    """
+    walkable = [NoMarketDataError, VendorRateLimitError, VendorNotConfiguredError]
+    try:
+        from yfinance.exceptions import YFRateLimitError
+        walkable.append(YFRateLimitError)
+    except ImportError:
+        pass
+    return tuple(walkable)
+
+
+_CHAIN_WALKABLE_ERRORS = _build_chain_walkable_errors()
 
 
 # ---------------------------------------------------------------------------

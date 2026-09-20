@@ -6,3 +6,7 @@
 tushare>=1.4.0
 pyyaml>=6.0
 akshare>=1.12.0
+
+# xfinance: multi-source failover for Yahoo Finance (US market_data/fundamentals/news)
+xfinance>=0.4.1
+tornado>=6.0   # required by pybreaker.call_async used by xfinance's circuit breaker
