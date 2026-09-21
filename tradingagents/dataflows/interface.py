@@ -263,30 +263,21 @@ def _dispatch_via_registry(method: str, *args, **kwargs):
     # adapters themselves only see kwargs.
     kw = _coerce_method_kwargs(method, args, kwargs)
 
-    # Determine market from the symbol arg (first positional in every
-    # method except get_global_news). For get_global_news there is no
-    # symbol — the market is whatever the YAML has configured for US
-    # (since macro news is a global feed, not per-market).
+    # Determine market from the symbol arg. Most methods carry it as their
+    # first positional; get_global_news has none (market = US); and
+    # get_macro_indicators carries it as a keyword arg injected from state.
     symbol = kw.get("symbol")
     if symbol:
         market = route_market(symbol)
-    elif method == "get_macro_indicators":
-        # macro_data has no symbol. Try A_SHARE first (tushare CN macro),
-        # then fall back to US (FRED) on failure. The dispatch below walks
-        # the chain; if A_SHARE has no data we re-dispatch to US.
-        market = "A_SHARE"
     else:
+        # No symbol (e.g. a symbol-less macro call): default to US so the
+        # FRED macro path governs. The macro tool prompt asks for FRED US
+        # indicators; A-share/HK runs inject their ticker as `symbol`, so
+        # this default only applies when the caller omitted it.
         market = "US"
 
     reg = get_registry()
-    try:
-        return reg.dispatch(category, market, capability=capability, **kw)
-    except NoMarketDataError:
-        # For symbol-less macro calls, fall back to US (FRED) if A_SHARE
-        # had no enabled source or returned no data.
-        if method == "get_macro_indicators" and market == "A_SHARE":
-            return reg.dispatch(category, "US", capability=capability, **kw)
-        raise
+    return reg.dispatch(category, market, capability=capability, **kw)
 
 
 def _coerce_method_kwargs(method: str, args: tuple, kwargs: dict) -> dict:
@@ -364,10 +355,10 @@ def route_to_vendor(method: str, *args, **kwargs):
         try:
             from .ticker_router import route as _route_market
             if method == "get_macro_indicators":
-                # macro_data has no symbol arg (args[0] is the indicator name).
-                # Probe A_SHARE first (tushare CN macro); _dispatch falls back
-                # to US (FRED) on failure.
-                _probe_market = "A_SHARE"
+                # macro_data carries its symbol as a keyword arg (injected
+                # from state), not positionally — args[0] is the indicator name.
+                _probe_symbol = kwargs.get("symbol") or None
+                _probe_market = _route_market(_probe_symbol) if _probe_symbol else "US"
             else:
                 _probe_symbol = args[0] if (args and isinstance(args[0], str)) else None
                 _probe_market = _route_market(_probe_symbol) if _probe_symbol else "US"

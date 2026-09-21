@@ -20,6 +20,7 @@ def get_macro_indicators(
         int | None, "Trailing window length in days; omit for a 1-year window"
     ] = None,
     trade_date: Annotated[str, InjectedState("trade_date")] = "",
+    symbol: Annotated[str, InjectedState("company_of_interest")] = "",
 ) -> str:
     """
     Retrieve a macroeconomic indicator time series from FRED (Federal Reserve
@@ -36,4 +37,10 @@ def get_macro_indicators(
     Returns:
         str: A formatted markdown report of the macro series
     """
-    return route_to_vendor("get_macro_indicators", indicator, as_of(curr_date, trade_date), look_back_days)
+    return route_to_vendor(
+        "get_macro_indicators",
+        indicator,
+        as_of(curr_date, trade_date),
+        look_back_days,
+        symbol=symbol,
+    )
