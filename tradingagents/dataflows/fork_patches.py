@@ -13,8 +13,9 @@ returns 429 rate-limited -- the pipeline fails even when akshare's
 This module monkey-patches ``load_ohlcv`` (and all module-level references
 to it) so that:
   - A-share symbols are served by tushare's ``pro.daily()`` endpoint.
+  - US symbols are served by tushare's ``pro.us_daily()`` endpoint (falling
+    back to yfinance when tushare has no coverage, e.g. forex/crypto).
   - HK symbols are served by akshare's ``stock_hk_daily`` (Sina source).
-  - US symbols are unaffected -- they pass through to the original yfinance.
 
 This is a FORK EXTENSION file -- it does not exist in upstream and carries
 zero merge-conflict risk. It is imported from ``interface.py`` (the only
@@ -31,8 +32,14 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 
-def _tushare_ohlcv(symbol: str, curr_date: str, years: int = 5) -> pd.DataFrame:
-    """Fetch A-share OHLCV from tushare, matching load_ohlcv's output shape.
+def _tushare_ohlcv(
+    symbol: str, curr_date: str, years: int = 5, api: str = "daily"
+) -> pd.DataFrame:
+    """Fetch A-share / US OHLCV from tushare, matching load_ohlcv's shape.
+
+    ``api`` is the tushare endpoint: ``daily`` (A-share) or ``us_daily``
+    (US). Both return the same columns (``trade_date``, ``open``/``high``/
+    ``low``/``close``, ``vol``), so the reshaping is shared.
 
     Returns a DataFrame with columns: Date, Open, High, Low, Close,
     Adj Close, Volume -- the same shape yfinance's download produces.
@@ -51,10 +58,10 @@ def _tushare_ohlcv(symbol: str, curr_date: str, years: int = 5) -> pd.DataFrame:
     start_str = start_dt.strftime("%Y%m%d")
     end_str = curr_dt.strftime("%Y%m%d")
 
-    df = pro.daily(ts_code=symbol, start_date=start_str, end_date=end_str)
+    df = getattr(pro, api)(ts_code=symbol, start_date=start_str, end_date=end_str)
     if df is None or df.empty:
         from .errors import NoMarketDataError
-        raise NoMarketDataError(symbol, symbol, "no rows from tushare daily")
+        raise NoMarketDataError(symbol, symbol, f"no rows from tushare {api}")
 
     # Tushare returns descending by trade_date; sort ascending.
     df = df.sort_values("trade_date").reset_index(drop=True)
@@ -137,7 +144,8 @@ def _patch_load_ohlcv_for_ashare_and_hk() -> None:
     from . import stockstats_utils
     from . import y_finance
     from . import market_data_validator
-    from .ticker_router import is_ashare, is_hk
+    from .errors import NoMarketDataError
+    from .ticker_router import is_ashare, is_hk, is_us
 
     _original = stockstats_utils.load_ohlcv
 
@@ -156,7 +164,23 @@ def _patch_load_ohlcv_for_ashare_and_hk() -> None:
                 from .stockstats_utils import _fill_price_gaps
                 data = _fill_price_gaps(data)
             return data
-        # US / unknown: original yfinance path.
+        if is_us(symbol):
+            logger.info("load_ohlcv: routing US %s through tushare", symbol)
+            try:
+                data = _tushare_ohlcv(symbol, curr_date, api="us_daily")
+            except NoMarketDataError:
+                # Non-equity US symbols (forex/crypto/futures) aren't in
+                # tushare's us_daily coverage; keep the original yfinance path.
+                logger.info(
+                    "load_ohlcv: US %s not in tushare; falling back to yfinance",
+                    symbol,
+                )
+                return _original(symbol, curr_date, fill_gaps)
+            if fill_gaps:
+                from .stockstats_utils import _fill_price_gaps
+                data = _fill_price_gaps(data)
+            return data
+        # Unknown: original yfinance path.
         return _original(symbol, curr_date, fill_gaps)
 
     # Patch the canonical location and every module-level import.
@@ -176,6 +200,15 @@ def _patch_load_ohlcv_for_ashare_and_hk() -> None:
         if is_hk(symbol):
             logger.info("_load_ohlcv_window: routing HK %s through akshare (Sina)", symbol)
             return _akshare_hk_ohlcv(symbol, curr_date, years=years)
+        if is_us(symbol):
+            logger.info("_load_ohlcv_window: routing US %s through tushare", symbol)
+            try:
+                return _tushare_ohlcv(symbol, curr_date, years=years, api="us_daily")
+            except NoMarketDataError:
+                logger.info(
+                    "_load_ohlcv_window: US %s not in tushare; falling back",
+                    symbol,
+                )
         orig = getattr(akshare_backend._load_ohlcv_window, "__wrapped__", None)
         if orig is not None:
             return orig(symbol, curr_date, years)
@@ -191,7 +224,7 @@ def _patch_load_ohlcv_for_ashare_and_hk() -> None:
 
     logger.info(
         "Fork patch applied: load_ohlcv + _load_ohlcv_window route "
-        "A-share -> tushare, HK -> akshare"
+        "A-share/US -> tushare, HK -> akshare"
     )
 
 
