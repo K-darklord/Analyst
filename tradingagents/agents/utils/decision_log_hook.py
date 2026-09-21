@@ -45,6 +45,12 @@ def log_to_fundteam(
     ``/api/engineer/repair-plans``.
     """
     base = os.environ.get("FUNDTEAM_URL", "http://127.0.0.1:8080")
+    headers = {"Content-Type": "application/json"}
+    # FundTeam's auth middleware requires a browser session cookie for /api/*
+    # paths; internal agents authenticate with a shared service token instead.
+    internal_token = os.environ.get("DECISION_LOG_TOKEN", "")
+    if internal_token:
+        headers["X-Internal-Token"] = internal_token
     payload = {
         "agent_name": agent_name,
         "signal_type": signal_type,
@@ -66,7 +72,7 @@ def log_to_fundteam(
         req = urllib.request.Request(
             f"{base}/api/decisions/log",
             data=json.dumps(payload, default=str).encode(),
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         urllib.request.urlopen(req, timeout=timeout).read()
