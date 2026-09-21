@@ -11,8 +11,9 @@ A recommended crontab entry (weekdays 09:00 Asia/Shanghai)::
         /Users/kevin/PycharmProjects/Fund/Analyst/scripts/daily_run.py \\
         >> ~/.tradingagents/dashboard/cron.log 2>&1
 """
+import os
 import sys
-sys.path.insert(0, '/Users/kevin/PycharmProjects/Fund/Analyst')
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dashboard.runner import run_analysis
 from dashboard.state_reader import load_watchlist, get_today_str
