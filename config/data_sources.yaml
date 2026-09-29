@@ -111,66 +111,84 @@
 
 market_data:
   US:
-    - source: tushare
+    - source: shared_catalog
       priority: 1
+      enabled: true                 # FundTeam shared Data Catalog (primary; local adapters = fallback)
+    - source: tushare
+      priority: 2
       enabled: true                 # us_daily (stable, 500 req/min, no rate limits)
     - source: yfinance
-      priority: 2
+      priority: 3
       enabled: true                 # fallback
     - source: xfinance
-      priority: 3
+      priority: 4
       enabled: true                 # Yahoo + Stooq/SEC failover, 5-min cache
     - source: alpha_vantage
-      priority: 4
+      priority: 5
       enabled: false
   A_SHARE:
-    - source: tushare
+    - source: shared_catalog
       priority: 1
+      enabled: true                 # FundTeam shared Data Catalog (primary; local adapters = fallback)
+    - source: tushare
+      priority: 2
       enabled: true                 # Phase 2: tushare now wired up
     - source: akshare
-      priority: 2
+      priority: 3
       enabled: true
   HK:
-    - source: tushare
+    - source: shared_catalog
       priority: 1
+      enabled: true                 # FundTeam shared Data Catalog (primary; local adapters = fallback)
+    - source: tushare
+      priority: 2
       enabled: true                 # hk_daily (rate-limited 1/hr)
     - source: akshare
-      priority: 2
+      priority: 3
       enabled: true                 # stock_hk_hist (eastmoney, free)
     - source: yfinance
-      priority: 3
+      priority: 4
       enabled: true                 # fallback (rate-limited)
 
 fundamentals:
   US:
-    - source: tushare
+    - source: shared_catalog
       priority: 1
+      enabled: true                 # FundTeam shared Data Catalog (primary; local adapters = fallback)
+    - source: tushare
+      priority: 2
       enabled: true                 # us_fina_indicator (major US + ADRs)
     - source: yfinance
-      priority: 2
+      priority: 3
       enabled: true                 # fallback (raw statements via SEC)
     - source: xfinance
-      priority: 3
+      priority: 4
       enabled: true                 # Yahoo + SEC EDGAR failover
     - source: alpha_vantage
-      priority: 4
-      enabled: false
-    - source: sec_edgar
       priority: 5
       enabled: false
+    - source: sec_edgar
+      priority: 6
+      enabled: false
   A_SHARE:
-    - source: tushare
+    - source: shared_catalog
       priority: 1
+      enabled: true                 # FundTeam shared Data Catalog (primary; local adapters = fallback)
+    - source: tushare
+      priority: 2
       enabled: true                 # Phase 2
     - source: akshare
-      priority: 2
+      priority: 3
       enabled: true
   HK:
-    - source: tushare
+    - source: shared_catalog
       priority: 1
+      enabled: true                 # FundTeam shared Data Catalog (primary; local adapters = fallback)
+    - source: tushare
+      priority: 2
       enabled: true                 # hk_income/hk_balancesheet/hk_cashflow (港股财报独立权限)
     - source: yfinance
-      priority: 2
+      priority: 3
       enabled: true                 # fallback
 
 # Macroeconomic indicators.
@@ -206,11 +224,14 @@ sentiment:
   # When both fail, sentiment_analyst falls back to a tushare capital-flow
   # proxy (moneyflow / margin_detail / top_list) inline.
   A_SHARE:
-    - source: xueqiu
+    - source: shared_catalog
       priority: 1
+      enabled: true                 # FundTeam shared Data Catalog (primary; local adapters = fallback)
+    - source: xueqiu
+      priority: 2
       enabled: false                # headless-Chrome scrape hangs in CI; fall through to guba/proxy
     - source: eastmoney_guba
-      priority: 2
+      priority: 3
       enabled: true                 # public, no auth
     - source: xiaohongshu
       priority: 3
@@ -225,11 +246,14 @@ sentiment:
 
 news:
   US:
-    - source: yfinance
+    - source: shared_catalog
       priority: 1
+      enabled: true                 # FundTeam shared Data Catalog (primary; local adapters = fallback)
+    - source: yfinance
+      priority: 2
       enabled: true
     - source: xfinance
-      priority: 2
+      priority: 3
       enabled: true                 # Yahoo news via multi-source router
     # NOTE: tushare returns A-share news, NOT US news. Kept here as
     # disabled so the config is self-documenting; re-enable only if a
@@ -246,8 +270,11 @@ news:
   #   eastmoney_news     — 东方财富 news, broader than tushare
   #   sina (新浪财经)     — public news endpoints
   A_SHARE:
-    - source: tushare
+    - source: shared_catalog
       priority: 1
+      enabled: true                 # FundTeam shared Data Catalog (primary; local adapters = fallback)
+    - source: tushare
+      priority: 2
       enabled: true                 # 10000 points: anns_d + research_report + major_news
     - source: cls_cn
       priority: 2
@@ -256,8 +283,11 @@ news:
       priority: 3
       enabled: false                # adapter not shipped yet
   HK:
-    - source: tushare
+    - source: shared_catalog
       priority: 1
+      enabled: true                 # FundTeam shared Data Catalog (primary; local adapters = fallback)
+    - source: tushare
+      priority: 2
       enabled: true                 # 10000 points
     - source: aastocks
       priority: 2

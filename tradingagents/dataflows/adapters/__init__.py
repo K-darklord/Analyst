@@ -15,6 +15,7 @@ from . import tushare_adapter      # noqa: F401
 from . import eastmoney_guba_adapter  # noqa: F401
 from . import xueqiu_adapter       # noqa: F401
 from . import xfinance_adapter     # noqa: F401
+from . import shared_catalog_adapter  # noqa: F401
 
 # Adapters not yet shipped (see config/data_sources.yaml roadmap):
 # from . import eastmoney_news_adapter   # A-share news
@@ -24,5 +25,5 @@ from . import xfinance_adapter     # noqa: F401
 __all__ = [
     "yfinance_adapter", "akshare_adapter", "tushare_adapter",
     "eastmoney_guba_adapter", "xueqiu_adapter",
-    "xfinance_adapter",
+    "xfinance_adapter", "shared_catalog_adapter",
 ]
